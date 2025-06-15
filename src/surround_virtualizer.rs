@@ -122,8 +122,7 @@ impl SurroundVirtualizer {
 }
 
 fn wav_to_binaural_convolver(wav_data: &[u8], block_size: usize) -> BinauralConvolver {
-    let mut cursor = Cursor::new(wav_data);
-    let mut reader = hound::WavReader::new(&mut cursor).unwrap();
+    let mut reader = hound::WavReader::new(Cursor::new(wav_data)).unwrap();
     let pcm = reader
         .samples::<f32>()
         .map(|s| s.unwrap_or_default())
