@@ -17,7 +17,9 @@ fn main() {
         let _ = proxy.send_event(AppUserEvent::MenuEvent(event));
     }));
 
-    backend::start_processing();
+    std::thread::spawn(|| {
+        backend::run();
+    });
 
     let mut app = App::new();
     event_loop.run_app(&mut app).unwrap();

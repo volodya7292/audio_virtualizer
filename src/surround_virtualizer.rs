@@ -58,7 +58,7 @@ pub struct SurroundVirtualizer {
 impl SurroundVirtualizer {
     const NORM_CONST: f32 = 1.0 / 8.0;
 
-    pub fn new(config: SurroundVirtualizerConfig) -> Self {
+    pub fn new(config: &SurroundVirtualizerConfig) -> Self {
         let fl = wav_to_binaural_convolver(&config.fl_wav, config.block_size);
         let fr = wav_to_binaural_convolver(&config.fr_wav, config.block_size);
         let fc = wav_to_binaural_convolver(&config.fc_wav, config.block_size);
