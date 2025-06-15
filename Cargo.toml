@@ -1,0 +1,13 @@
+[package]
+name = "audio_virtualizer"
+authors = ["Volodymyr Shulakov <a7292969@gmail.com>"]
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+cpal = "0.16"
+concurrent-queue = "2.5"
+rustfft = "6.4"
+hound = "3.5"
+num-complex = "0.4"
+num-traits = "0.2"
