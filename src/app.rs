@@ -1,5 +1,7 @@
-use crate::backend;
-use num_derive::FromPrimitive;
+use crate::{
+    backend,
+    config::{self, AppConfig, EqualizerProfile},
+};
 use std::io::Cursor;
 use tray_icon::{
     Icon, TrayIcon, TrayIconBuilder,
@@ -8,14 +10,6 @@ use tray_icon::{
 use winit::application::ApplicationHandler;
 
 const ICON: &'static [u8] = include_bytes!("../res/icon.png");
-
-#[derive(Debug, Clone, Copy, PartialEq, FromPrimitive)]
-pub enum EqualizerProfile {
-    None,
-    Earpods,
-    K702,
-    DT770Pro,
-}
 
 pub enum AppUserEvent {
     MenuEvent(tray_icon::menu::MenuEvent),
@@ -91,6 +85,13 @@ impl App {
             EqualizerProfile::DT770Pro => self.eq_dt770pro_item.set_checked(true),
         }
         backend::set_equalizer_profile(profile);
+        config::update(|cfg| {
+            cfg.equalizer_profile = profile;
+        });
+    }
+
+    pub fn update_from_config(&mut self, config: &AppConfig) {
+        self.select_eq_item(config.equalizer_profile);
     }
 }
 

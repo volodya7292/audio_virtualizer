@@ -2,12 +2,15 @@ mod app;
 mod audio_buffer_queue;
 mod backend;
 mod block_convolver;
+mod config;
 mod surround_virtualizer;
 
 use crate::app::{App, AppUserEvent};
 use winit::event_loop::EventLoop;
 
 fn main() {
+    config::load();
+
     let mut event_loop_builder = EventLoop::<AppUserEvent>::with_user_event();
 
     #[cfg(target_os = "macos")]
@@ -32,5 +35,7 @@ fn main() {
     });
 
     let mut app = App::new();
+    app.update_from_config(&config::get_snapshot());
+
     event_loop.run_app(&mut app).unwrap();
 }

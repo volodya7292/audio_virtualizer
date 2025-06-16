@@ -1,6 +1,6 @@
 use crate::{
-    app::EqualizerProfile,
     audio_buffer_queue::AudioBufferQueue,
+    config::EqualizerProfile,
     surround_virtualizer::{Equalizer, SurroundVirtualizer, SurroundVirtualizerConfig, wav_to_pcm},
 };
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
