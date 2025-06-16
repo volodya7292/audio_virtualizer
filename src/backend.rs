@@ -5,29 +5,34 @@ use crate::{
 };
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use num_traits::FromPrimitive;
-use std::sync::{
-    Arc,
-    atomic::{self, AtomicU32},
-    mpsc,
+use std::{
+    sync::{
+        Arc,
+        atomic::{self, AtomicBool, AtomicU32},
+    },
+    thread,
 };
 
-const FC_WAV: &[u8] = include_bytes!("../res/hrir/FC.wav");
-const BL_WAV: &[u8] = include_bytes!("../res/hrir/BL.wav");
-const BR_WAV: &[u8] = include_bytes!("../res/hrir/BR.wav");
-const FL_WAV: &[u8] = include_bytes!("../res/hrir/FL.wav");
-const FR_WAV: &[u8] = include_bytes!("../res/hrir/FR.wav");
-const SL_WAV: &[u8] = include_bytes!("../res/hrir/SL.wav");
-const SR_WAV: &[u8] = include_bytes!("../res/hrir/SR.wav");
-const LFE_WAV: &[u8] = include_bytes!("../res/hrir/LFE.wav");
+const FC_WAV: &[u8] = include_bytes!("../res/hrir/1/FC.wav");
+const BL_WAV: &[u8] = include_bytes!("../res/hrir/1/BL.wav");
+const BR_WAV: &[u8] = include_bytes!("../res/hrir/1/BR.wav");
+const FL_WAV: &[u8] = include_bytes!("../res/hrir/1/FL.wav");
+const FR_WAV: &[u8] = include_bytes!("../res/hrir/1/FR.wav");
+const SL_WAV: &[u8] = include_bytes!("../res/hrir/1/SL.wav");
+const SR_WAV: &[u8] = include_bytes!("../res/hrir/1/SR.wav");
+const LFE_WAV: &[u8] = include_bytes!("../res/hrir/1/LFE.wav");
+
 const EARPODS_EQ: &[u8] = include_bytes!("../res/eq/earpods.wav");
 const K702_EQ: &[u8] = include_bytes!("../res/eq/k702.wav");
 const DT770PRO_EQ: &[u8] = include_bytes!("../res/eq/dt770pro.wav");
+
 const NUM_SURROUND_CHANNELS: u32 = 8;
 const CH_BUF_SIZE: usize = 2048;
 const HRIR_SAMPLE_RATE: u32 = 48000;
 const INPUT_DEVICE_NAME: &str = "BlackHole 16ch";
 const OUTPUT_DEVICE_NAME: &str = "External Headphones";
 
+static RELOAD_NEEDED: AtomicBool = AtomicBool::new(false);
 static CURRENT_EQ_PROFILE: AtomicU32 = AtomicU32::new(0);
 
 pub fn set_equalizer_profile(profile: EqualizerProfile) {
@@ -36,7 +41,6 @@ pub fn set_equalizer_profile(profile: EqualizerProfile) {
 
 fn start_backend(
     host: &cpal::Host,
-    reload_tx: &mpsc::SyncSender<()>,
     in_stream_var: &mut Option<cpal::Stream>,
     out_stream_var: &mut Option<cpal::Stream>,
 ) {
@@ -57,6 +61,11 @@ fn start_backend(
     let mut eq_k702 = Equalizer::new(CH_BUF_SIZE, wav_to_pcm(K702_EQ));
     let mut eq_dt770pro = Equalizer::new(CH_BUF_SIZE, wav_to_pcm(DT770PRO_EQ));
 
+    let reload_fn = move || {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        RELOAD_NEEDED.store(true, atomic::Ordering::Relaxed);
+    };
+
     let input_dev = host.input_devices().unwrap().find(|dev| {
         dev.name()
             .map(|name| name == INPUT_DEVICE_NAME)
@@ -64,8 +73,7 @@ fn start_backend(
     });
     let Some(input_dev) = input_dev else {
         println!("Input device not found");
-        std::thread::sleep(std::time::Duration::from_secs(1));
-        reload_tx.send(()).unwrap();
+        reload_fn();
         return;
     };
 
@@ -76,10 +84,11 @@ fn start_backend(
     });
     let Some(output_dev) = output_dev else {
         println!("Output device not found");
-        std::thread::sleep(std::time::Duration::from_secs(1));
-        reload_tx.send(()).unwrap();
+        reload_fn();
         return;
     };
+
+    output_dev.as_inner();
 
     let in_config = cpal::StreamConfig {
         channels: NUM_SURROUND_CHANNELS as u16,
@@ -96,7 +105,6 @@ fn start_backend(
     let audio_queue = Arc::new(AudioBufferQueue::new(CH_BUF_SIZE * 2));
 
     let aq = Arc::clone(&audio_queue);
-    let rel_tx = reload_tx.clone();
     let in_stream = input_dev
         .build_input_stream(
             &in_config,
@@ -118,15 +126,13 @@ fn start_backend(
             },
             move |err| {
                 eprintln!("Input error: {}", err);
-                std::thread::sleep(std::time::Duration::from_secs(1));
-                let _ = rel_tx.send(());
+                reload_fn();
             },
             None,
         )
         .unwrap();
 
     let aq = Arc::clone(&audio_queue);
-    let rel_tx = reload_tx.clone();
     let out_stream = output_dev
         .build_output_stream(
             &out_config,
@@ -137,8 +143,7 @@ fn start_backend(
             },
             move |err| {
                 eprintln!("Output error: {}", err);
-                std::thread::sleep(std::time::Duration::from_secs(1));
-                let _ = rel_tx.send(());
+                reload_fn();
             },
             None,
         )
@@ -152,17 +157,18 @@ fn start_backend(
 }
 
 pub fn run() {
-    let (reload_tx, reload_rx) = std::sync::mpsc::sync_channel(1);
-    reload_tx.send(()).unwrap();
+    RELOAD_NEEDED.store(true, atomic::Ordering::Relaxed);
 
     let host = cpal::default_host();
     let mut in_stream = None;
     let mut out_stream = None;
 
-    while let Ok(_) = reload_rx.recv() {
-        println!("Starting backend...");
-        start_backend(&host, &reload_tx, &mut in_stream, &mut out_stream);
-    }
+    loop {
+        if RELOAD_NEEDED.swap(false, atomic::Ordering::Relaxed) {
+            println!("Starting backend...");
+            start_backend(&host, &mut in_stream, &mut out_stream);
+        }
 
-    println!("Backend stopped.");
+        thread::sleep(std::time::Duration::from_millis(100));
+    }
 }
