@@ -121,16 +121,54 @@ impl SurroundVirtualizer {
         }
     }
 }
+pub struct Equalizer {
+    left: BlockConvoler,
+    right: BlockConvoler,
+    buf: Vec<f32>,
+}
 
-fn wav_to_binaural_convolver(wav_data: &[u8], block_size: usize) -> BinauralConvolver {
+impl Equalizer {
+    pub fn new(block_size: usize, eqir: Vec<f32>) -> Self {
+        Self {
+            left: BlockConvoler::new(block_size, &eqir),
+            right: BlockConvoler::new(block_size, &eqir),
+            buf: vec![0.0; block_size],
+        }
+    }
+
+    pub fn process(&mut self, stereo_signal: &mut [f32]) {
+        let left_ch = stereo_signal.iter().step_by(2);
+        for (i, v) in left_ch.enumerate() {
+            self.buf[i] = *v;
+        }
+        self.left.process(&mut self.buf);
+        for (i, v) in self.buf.iter().enumerate() {
+            stereo_signal[i * 2] = *v;
+        }
+
+        let right_ch = stereo_signal.iter().skip(1).step_by(2);
+        for (i, v) in right_ch.enumerate() {
+            self.buf[i] = *v;
+        }
+        self.right.process(&mut self.buf);
+        for (i, v) in self.buf.iter().enumerate() {
+            stereo_signal[i * 2 + 1] = *v;
+        }
+    }
+}
+
+pub fn wav_to_pcm(wav_data: &[u8]) -> Vec<f32> {
     let mut reader = hound::WavReader::new(Cursor::new(wav_data)).unwrap();
     let pcm = reader
         .samples::<f32>()
         .map(|s| s.unwrap_or_default())
         .collect::<Vec<f32>>();
+    pcm
+}
 
+fn wav_to_binaural_convolver(wav_data: &[u8], block_size: usize) -> BinauralConvolver {
+    let pcm = wav_to_pcm(wav_data);
     let left_pcm = pcm.iter().step_by(2).cloned().collect::<Vec<_>>();
     let right_pcm = pcm.iter().skip(1).step_by(2).cloned().collect::<Vec<_>>();
-
     BinauralConvolver::new(block_size, left_pcm, right_pcm)
 }

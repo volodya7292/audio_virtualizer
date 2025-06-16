@@ -1,11 +1,21 @@
+use crate::backend;
+use num_derive::FromPrimitive;
 use std::io::Cursor;
 use tray_icon::{
     Icon, TrayIcon, TrayIconBuilder,
-    menu::{self, Menu, MenuItem},
+    menu::{self, CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
 };
 use winit::application::ApplicationHandler;
 
 const ICON: &'static [u8] = include_bytes!("../res/icon.png");
+
+#[derive(Debug, Clone, Copy, PartialEq, FromPrimitive)]
+pub enum EqualizerProfile {
+    None,
+    Earpods,
+    K702,
+    DT770Pro,
+}
 
 pub enum AppUserEvent {
     MenuEvent(tray_icon::menu::MenuEvent),
@@ -14,13 +24,30 @@ pub enum AppUserEvent {
 pub struct App {
     _tray_icon: TrayIcon,
     quit_menu_item: MenuItem,
+    eq_none_item: CheckMenuItem,
+    eq_earpods_item: CheckMenuItem,
+    eq_k702_item: CheckMenuItem,
+    eq_dt770pro_item: CheckMenuItem,
 }
 
 impl App {
     pub fn new() -> Self {
         let quit_menu_item = menu::MenuItem::new("Quit", true, None);
 
+        let eq_none_item = menu::CheckMenuItem::new("None", true, true, None);
+        let eq_earpods_item = menu::CheckMenuItem::new("EarPods", true, false, None);
+        let eq_k702_item = menu::CheckMenuItem::new("K702", true, false, None);
+        let eq_dt770pro_item = menu::CheckMenuItem::new("DT 770 Pro", true, false, None);
+
+        let eq_submenu = menu::Submenu::new("Equalizer Profile", true);
+        eq_submenu.append(&eq_none_item).unwrap();
+        eq_submenu.append(&eq_earpods_item).unwrap();
+        eq_submenu.append(&eq_k702_item).unwrap();
+        eq_submenu.append(&eq_dt770pro_item).unwrap();
+
         let tray_menu = Menu::new();
+        tray_menu.append(&eq_submenu).unwrap();
+        tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
         tray_menu.append(&quit_menu_item).unwrap();
 
         let mut icon_reader = png::Decoder::new(Cursor::new(ICON)).read_info().unwrap();
@@ -29,8 +56,8 @@ impl App {
         icon_reader.finish().unwrap();
 
         let tray_icon = TrayIconBuilder::new()
+            .with_tooltip("Audio Virtualizer")
             .with_menu(Box::new(tray_menu))
-            .with_tooltip("system-tray - tray icon library!")
             .with_icon(
                 Icon::from_rgba(
                     icon_buf,
@@ -45,7 +72,25 @@ impl App {
         Self {
             _tray_icon: tray_icon,
             quit_menu_item,
+            eq_none_item,
+            eq_earpods_item,
+            eq_k702_item,
+            eq_dt770pro_item,
         }
+    }
+
+    fn select_eq_item(&mut self, profile: EqualizerProfile) {
+        self.eq_none_item.set_checked(false);
+        self.eq_earpods_item.set_checked(false);
+        self.eq_k702_item.set_checked(false);
+        self.eq_dt770pro_item.set_checked(false);
+        match profile {
+            EqualizerProfile::None => self.eq_none_item.set_checked(true),
+            EqualizerProfile::Earpods => self.eq_earpods_item.set_checked(true),
+            EqualizerProfile::K702 => self.eq_k702_item.set_checked(true),
+            EqualizerProfile::DT770Pro => self.eq_dt770pro_item.set_checked(true),
+        }
+        backend::set_equalizer_profile(profile);
     }
 }
 
@@ -57,6 +102,14 @@ impl ApplicationHandler<AppUserEvent> for App {
             AppUserEvent::MenuEvent(menu_event) => {
                 if menu_event.id() == self.quit_menu_item.id() {
                     event_loop.exit();
+                } else if menu_event.id() == self.eq_none_item.id() {
+                    self.select_eq_item(EqualizerProfile::None);
+                } else if menu_event.id() == self.eq_earpods_item.id() {
+                    self.select_eq_item(EqualizerProfile::Earpods);
+                } else if menu_event.id() == self.eq_k702_item.id() {
+                    self.select_eq_item(EqualizerProfile::K702);
+                } else if menu_event.id() == self.eq_dt770pro_item.id() {
+                    self.select_eq_item(EqualizerProfile::DT770Pro);
                 }
             }
         }

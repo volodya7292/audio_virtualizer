@@ -141,6 +141,7 @@ dependencies = [
  "cpal",
  "hound",
  "num-complex",
+ "num-derive",
  "num-traits",
  "png",
  "rustfft",

@@ -1,23 +1,38 @@
 use crate::{
+    app::EqualizerProfile,
     audio_buffer_queue::AudioBufferQueue,
-    surround_virtualizer::{SurroundVirtualizer, SurroundVirtualizerConfig},
+    surround_virtualizer::{Equalizer, SurroundVirtualizer, SurroundVirtualizerConfig, wav_to_pcm},
 };
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use std::sync::{Arc, mpsc};
+use num_traits::FromPrimitive;
+use std::sync::{
+    Arc,
+    atomic::{self, AtomicU32},
+    mpsc,
+};
 
-const FC_WAV: &[u8] = include_bytes!("../res/FC.wav");
-const BL_WAV: &[u8] = include_bytes!("../res/BL.wav");
-const BR_WAV: &[u8] = include_bytes!("../res/BR.wav");
-const FL_WAV: &[u8] = include_bytes!("../res/FL.wav");
-const FR_WAV: &[u8] = include_bytes!("../res/FR.wav");
-const SL_WAV: &[u8] = include_bytes!("../res/SL.wav");
-const SR_WAV: &[u8] = include_bytes!("../res/SR.wav");
-const LFE_WAV: &[u8] = include_bytes!("../res/LFE.wav");
+const FC_WAV: &[u8] = include_bytes!("../res/hrir/FC.wav");
+const BL_WAV: &[u8] = include_bytes!("../res/hrir/BL.wav");
+const BR_WAV: &[u8] = include_bytes!("../res/hrir/BR.wav");
+const FL_WAV: &[u8] = include_bytes!("../res/hrir/FL.wav");
+const FR_WAV: &[u8] = include_bytes!("../res/hrir/FR.wav");
+const SL_WAV: &[u8] = include_bytes!("../res/hrir/SL.wav");
+const SR_WAV: &[u8] = include_bytes!("../res/hrir/SR.wav");
+const LFE_WAV: &[u8] = include_bytes!("../res/hrir/LFE.wav");
+const EARPODS_EQ: &[u8] = include_bytes!("../res/eq/earpods.wav");
+const K702_EQ: &[u8] = include_bytes!("../res/eq/k702.wav");
+const DT770PRO_EQ: &[u8] = include_bytes!("../res/eq/dt770pro.wav");
 const NUM_SURROUND_CHANNELS: u32 = 8;
 const CH_BUF_SIZE: usize = 2048;
 const HRIR_SAMPLE_RATE: u32 = 48000;
 const INPUT_DEVICE_NAME: &str = "BlackHole 16ch";
 const OUTPUT_DEVICE_NAME: &str = "External Headphones";
+
+static CURRENT_EQ_PROFILE: AtomicU32 = AtomicU32::new(0);
+
+pub fn set_equalizer_profile(profile: EqualizerProfile) {
+    CURRENT_EQ_PROFILE.store(profile as u32, atomic::Ordering::Relaxed);
+}
 
 fn start_backend(
     host: &cpal::Host,
@@ -37,6 +52,10 @@ fn start_backend(
         block_size: CH_BUF_SIZE,
     };
     let mut sv = SurroundVirtualizer::new(&virt_config);
+
+    let mut eq_earpods = Equalizer::new(CH_BUF_SIZE, wav_to_pcm(EARPODS_EQ));
+    let mut eq_k702 = Equalizer::new(CH_BUF_SIZE, wav_to_pcm(K702_EQ));
+    let mut eq_dt770pro = Equalizer::new(CH_BUF_SIZE, wav_to_pcm(DT770PRO_EQ));
 
     let input_dev = host.input_devices().unwrap().find(|dev| {
         dev.name()
@@ -86,6 +105,15 @@ fn start_backend(
                     return;
                 };
                 sv.process(input, in_config.channels as usize, &mut buf);
+
+                let current_profile = CURRENT_EQ_PROFILE.load(atomic::Ordering::Relaxed);
+                match EqualizerProfile::from_u32(current_profile).unwrap() {
+                    EqualizerProfile::Earpods => eq_earpods.process(&mut buf),
+                    EqualizerProfile::K702 => eq_k702.process(&mut buf),
+                    EqualizerProfile::DT770Pro => eq_dt770pro.process(&mut buf),
+                    _ => {}
+                }
+
                 aq.submit_buf(buf);
             },
             move |err| {
