@@ -56,7 +56,10 @@ pub struct SurroundVirtualizer {
 }
 
 impl SurroundVirtualizer {
-    const NORM_CONST: f32 = 1.0 / 8.0;
+    const CENTER_GAIN: f32 = 0.5 * std::f32::consts::SQRT_2;
+    const SIDE_GAIN: f32 = 0.5 * std::f32::consts::SQRT_2;
+    const BACK_GAIN: f32 = 0.5 * std::f32::consts::SQRT_2;
+    const LFE_GAIN: f32 = 0.25;
 
     pub fn new(config: &SurroundVirtualizerConfig) -> Self {
         let fl = wav_to_binaural_convolver(&config.fl_wav, config.block_size);
@@ -99,24 +102,22 @@ impl SurroundVirtualizer {
         self.br_conv.process(input_block, 7, num_input_channels);
 
         for i in 0..self.block_size {
-            stereo_output[i * 2] = Self::NORM_CONST
-                * (self.fl_conv.left_buf[i]
-                    + self.fr_conv.left_buf[i]
-                    + self.fc_conv.left_buf[i]
-                    + self.bl_conv.left_buf[i]
-                    + self.br_conv.left_buf[i]
-                    + self.sl_conv.left_buf[i]
-                    + self.sr_conv.left_buf[i]
-                    + self.lfe_conv.left_buf[i]);
-            stereo_output[i * 2 + 1] = Self::NORM_CONST
-                * (self.fl_conv.right_buf[i]
-                    + self.fr_conv.right_buf[i]
-                    + self.fc_conv.right_buf[i]
-                    + self.bl_conv.right_buf[i]
-                    + self.br_conv.right_buf[i]
-                    + self.sl_conv.right_buf[i]
-                    + self.sr_conv.right_buf[i]
-                    + self.lfe_conv.right_buf[i]);
+            stereo_output[i * 2] = self.fl_conv.left_buf[i]
+                + self.fr_conv.left_buf[i]
+                + Self::CENTER_GAIN * self.fc_conv.left_buf[i]
+                + Self::BACK_GAIN * self.bl_conv.left_buf[i]
+                + Self::BACK_GAIN * self.br_conv.left_buf[i]
+                + Self::SIDE_GAIN * self.sl_conv.left_buf[i]
+                + Self::SIDE_GAIN * self.sr_conv.left_buf[i]
+                + Self::LFE_GAIN * self.lfe_conv.left_buf[i];
+            stereo_output[i * 2 + 1] = self.fl_conv.right_buf[i]
+                + self.fr_conv.right_buf[i]
+                + Self::CENTER_GAIN * self.fc_conv.right_buf[i]
+                + Self::BACK_GAIN * self.bl_conv.right_buf[i]
+                + Self::BACK_GAIN * self.br_conv.right_buf[i]
+                + Self::SIDE_GAIN * self.sl_conv.right_buf[i]
+                + Self::SIDE_GAIN * self.sr_conv.right_buf[i]
+                + Self::LFE_GAIN * self.lfe_conv.right_buf[i];
         }
     }
 }
