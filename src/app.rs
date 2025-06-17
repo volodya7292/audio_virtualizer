@@ -45,8 +45,8 @@ impl App {
         eq_submenu.append(&eq_k702_item).unwrap();
         eq_submenu.append(&eq_dt770pro_item).unwrap();
 
-        let input_device_submenu = menu::Submenu::new("Audio Source", true);
-        let output_device_submenu = menu::Submenu::new("Output Device", true);
+        let input_device_submenu = menu::Submenu::new("Surround Audio Source", true);
+        let output_device_submenu = menu::Submenu::new("Stereo Output Device", true);
 
         let tray_menu = Menu::new();
         tray_menu.append(&eq_submenu).unwrap();
