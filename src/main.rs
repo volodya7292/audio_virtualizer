@@ -23,19 +23,26 @@ fn main() {
 
     let event_loop = event_loop_builder.build().unwrap();
 
-    let proxy = event_loop.create_proxy();
+    let ev_proxy = event_loop.create_proxy();
     tray_icon::menu::MenuEvent::set_event_handler(Some(move |event| {
-        if let Err(e) = proxy.send_event(AppUserEvent::MenuEvent(event)) {
+        if let Err(e) = ev_proxy.send_event(AppUserEvent::MenuEvent(event)) {
             eprintln!("Failed to send menu event: {}", e);
         }
     }));
 
-    std::thread::spawn(|| {
-        backend::run();
-    });
+    let ev_proxy = event_loop.create_proxy();
+    tray_icon::TrayIconEvent::set_event_handler(Some(move |event| {
+        if let Err(e) = ev_proxy.send_event(AppUserEvent::TrayIconEvent(event)) {
+            eprintln!("Failed to send tray icon event: {}", e);
+        }
+    }));
 
     let mut app = App::new();
     app.update_from_config(&config::get_snapshot());
+
+    std::thread::spawn(|| {
+        backend::run();
+    });
 
     event_loop.run_app(&mut app).unwrap();
 }

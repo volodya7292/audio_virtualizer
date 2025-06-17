@@ -2,10 +2,11 @@ use crate::{
     backend,
     config::{self, AppConfig, EqualizerProfile},
 };
+use std::collections::HashMap;
 use std::io::Cursor;
 use tray_icon::{
-    Icon, TrayIcon, TrayIconBuilder,
-    menu::{self, CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
+    Icon, TrayIcon, TrayIconBuilder, TrayIconEvent,
+    menu::{self, CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
 };
 use winit::application::ApplicationHandler;
 
@@ -13,6 +14,7 @@ const ICON: &'static [u8] = include_bytes!("../res/icon.png");
 
 pub enum AppUserEvent {
     MenuEvent(tray_icon::menu::MenuEvent),
+    TrayIconEvent(tray_icon::TrayIconEvent),
 }
 
 pub struct App {
@@ -22,6 +24,10 @@ pub struct App {
     eq_earpods_item: CheckMenuItem,
     eq_k702_item: CheckMenuItem,
     eq_dt770pro_item: CheckMenuItem,
+    input_device_submenu: Submenu,
+    output_device_submenu: Submenu,
+    input_device_items: HashMap<String, CheckMenuItem>,
+    output_device_items: HashMap<String, CheckMenuItem>,
 }
 
 impl App {
@@ -39,8 +45,14 @@ impl App {
         eq_submenu.append(&eq_k702_item).unwrap();
         eq_submenu.append(&eq_dt770pro_item).unwrap();
 
+        let input_device_submenu = menu::Submenu::new("Audio Source", true);
+        let output_device_submenu = menu::Submenu::new("Output Device", true);
+
         let tray_menu = Menu::new();
         tray_menu.append(&eq_submenu).unwrap();
+        tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
+        tray_menu.append(&input_device_submenu).unwrap();
+        tray_menu.append(&output_device_submenu).unwrap();
         tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
         tray_menu.append(&quit_menu_item).unwrap();
 
@@ -70,6 +82,10 @@ impl App {
             eq_earpods_item,
             eq_k702_item,
             eq_dt770pro_item,
+            input_device_submenu,
+            output_device_submenu,
+            input_device_items: HashMap::new(),
+            output_device_items: HashMap::new(),
         }
     }
 
@@ -90,8 +106,87 @@ impl App {
         });
     }
 
+    fn refresh_audio_device_lists(&mut self, config: &AppConfig) {
+        for item in self.input_device_items.values() {
+            self.input_device_submenu.remove(item).unwrap_or_default();
+        }
+        for item in self.output_device_items.values() {
+            self.output_device_submenu.remove(item).unwrap_or_default();
+        }
+
+        self.input_device_items.clear();
+        self.output_device_items.clear();
+
+        let input_devices = backend::get_input_devices();
+        let selected_input_def = config
+            .input_device_name
+            .as_deref()
+            .unwrap_or(backend::DEFAULT_INPUT_DEVICE_NAME);
+
+        for device_name in input_devices {
+            let is_selected = device_name == selected_input_def;
+            let item = menu::CheckMenuItem::new(&device_name, true, is_selected, None);
+            self.input_device_submenu.append(&item).unwrap();
+            self.input_device_items.insert(device_name, item);
+        }
+
+        let output_devices = backend::get_output_devices();
+        let selected_output_def = config
+            .output_device_name
+            .as_deref()
+            .unwrap_or(backend::DEFAULT_OUTPUT_DEVICE_NAME);
+
+        for device_name in output_devices {
+            let is_selected = device_name == selected_output_def;
+            let item = menu::CheckMenuItem::new(&device_name, true, is_selected, None);
+            self.output_device_submenu.append(&item).unwrap();
+            self.output_device_items.insert(device_name, item);
+        }
+    }
+
+    fn select_input_device(&mut self, device_name: &str) {
+        for item in self.input_device_items.values() {
+            item.set_checked(false);
+        }
+        if let Some(item) = self.input_device_items.get(device_name) {
+            item.set_checked(true);
+        }
+
+        config::update(|cfg| {
+            cfg.input_device_name = Some(device_name.to_string());
+        });
+        backend::reload_backend();
+    }
+
+    fn select_output_device(&mut self, device_name: &str) {
+        for item in self.output_device_items.values() {
+            item.set_checked(false);
+        }
+        if let Some(item) = self.output_device_items.get(device_name) {
+            item.set_checked(true);
+        }
+
+        config::update(|cfg| {
+            cfg.output_device_name = Some(device_name.to_string());
+        });
+        backend::reload_backend();
+    }
+
     pub fn update_from_config(&mut self, config: &AppConfig) {
+        self.refresh_audio_device_lists(config);
         self.select_eq_item(config.equalizer_profile);
+        self.select_input_device(
+            config
+                .input_device_name
+                .as_deref()
+                .unwrap_or(backend::DEFAULT_INPUT_DEVICE_NAME),
+        );
+        self.select_output_device(
+            config
+                .output_device_name
+                .as_deref()
+                .unwrap_or(backend::DEFAULT_OUTPUT_DEVICE_NAME),
+        );
     }
 }
 
@@ -101,16 +196,47 @@ impl ApplicationHandler<AppUserEvent> for App {
     fn user_event(&mut self, event_loop: &winit::event_loop::ActiveEventLoop, event: AppUserEvent) {
         match event {
             AppUserEvent::MenuEvent(menu_event) => {
-                if menu_event.id() == self.quit_menu_item.id() {
+                let menu_id = menu_event.id();
+
+                if menu_id == self.quit_menu_item.id() {
                     event_loop.exit();
-                } else if menu_event.id() == self.eq_none_item.id() {
+                } else if menu_id == self.eq_none_item.id() {
                     self.select_eq_item(EqualizerProfile::None);
-                } else if menu_event.id() == self.eq_earpods_item.id() {
+                } else if menu_id == self.eq_earpods_item.id() {
                     self.select_eq_item(EqualizerProfile::Earpods);
-                } else if menu_event.id() == self.eq_k702_item.id() {
+                } else if menu_id == self.eq_k702_item.id() {
                     self.select_eq_item(EqualizerProfile::K702);
-                } else if menu_event.id() == self.eq_dt770pro_item.id() {
+                } else if menu_id == self.eq_dt770pro_item.id() {
                     self.select_eq_item(EqualizerProfile::DT770Pro);
+                } else {
+                    let mut selected_input_device = None;
+                    for (device_name, item) in &self.input_device_items {
+                        if menu_id == item.id() {
+                            selected_input_device = Some(device_name.clone());
+                            break;
+                        }
+                    }
+                    if let Some(device_name) = selected_input_device {
+                        self.select_input_device(&device_name);
+                        return;
+                    }
+
+                    let mut selected_output_device = None;
+                    for (device_name, item) in &self.output_device_items {
+                        if menu_id == item.id() {
+                            selected_output_device = Some(device_name.clone());
+                            break;
+                        }
+                    }
+                    if let Some(device_name) = selected_output_device {
+                        self.select_output_device(&device_name);
+                    }
+                }
+            }
+            AppUserEvent::TrayIconEvent(tray_icon_event) => {
+                if let TrayIconEvent::Click { .. } = tray_icon_event {
+                    let config = config::get_snapshot();
+                    self.refresh_audio_device_lists(&config);
                 }
             }
         }

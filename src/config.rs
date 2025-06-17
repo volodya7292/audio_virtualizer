@@ -6,12 +6,16 @@ use std::{fs::File, path::PathBuf, sync::Mutex};
 lazy_static! {
     static ref APP_CONFIG: Mutex<AppConfig> = Mutex::new(AppConfig {
         equalizer_profile: EqualizerProfile::None,
+        input_device_name: None,
+        output_device_name: None
     });
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct AppConfig {
     pub equalizer_profile: EqualizerProfile,
+    pub input_device_name: Option<String>,
+    pub output_device_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, FromPrimitive, Serialize, Deserialize)]

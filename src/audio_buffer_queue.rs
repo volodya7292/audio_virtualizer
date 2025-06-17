@@ -1,5 +1,8 @@
 use concurrent_queue as cq;
-use std::sync::{Condvar, Mutex};
+use std::{
+    sync::{Condvar, Mutex},
+    time::Duration,
+};
 
 pub struct AudioBufferQueue {
     free_bufs: cq::ConcurrentQueue<Vec<f32>>,
@@ -23,14 +26,18 @@ impl AudioBufferQueue {
         }
     }
 
-    pub fn acquire_ready_buf(&self) -> Vec<f32> {
-        let mut guard = self.ready_cond_var.0.lock().unwrap();
+    pub fn acquire_ready_buf(&self, timeout: Duration) -> Option<Vec<f32>> {
+        let mut guard = self.ready_cond_var.0.lock().ok()?;
 
         loop {
             if let Ok(buf) = self.ready_bufs.pop() {
-                return buf;
+                return Some(buf);
             }
-            guard = self.ready_cond_var.1.wait(guard).unwrap();
+            let res = self.ready_cond_var.1.wait_timeout(guard, timeout).ok()?;
+            if res.1.timed_out() {
+                return None;
+            }
+            guard = res.0;
         }
     }
 
