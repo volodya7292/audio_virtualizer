@@ -1,5 +1,5 @@
 mod app;
-mod audio_buffer_queue;
+mod audio_swapchain;
 mod backend;
 mod block_convolver;
 mod config;

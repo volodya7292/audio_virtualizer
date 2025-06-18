@@ -1,5 +1,5 @@
 use crate::{
-    audio_buffer_queue::AudioBufferQueue,
+    audio_swapchain::AudioSwapchain,
     config::{self, EqualizerProfile},
     surround_virtualizer::{Equalizer, SurroundVirtualizer, SurroundVirtualizerConfig, wav_to_pcm},
 };
@@ -29,6 +29,7 @@ const DT770PRO_EQ: &[u8] = include_bytes!("../res/eq/dt770pro.wav");
 
 const NUM_SURROUND_CHANNELS: u32 = 8;
 const CH_BUF_SIZE: usize = 2048;
+const NUM_OUT_CHANNELS: usize = 2;
 const HRIR_SAMPLE_RATE: u32 = 48000;
 pub const DEFAULT_INPUT_DEVICE_NAME: &str = "BlackHole 16ch";
 pub const DEFAULT_OUTPUT_DEVICE_NAME: &str = "External Headphones";
@@ -132,8 +133,7 @@ fn start_backend(
         buffer_size: cpal::BufferSize::Fixed(CH_BUF_SIZE as u32),
     };
 
-    let audio_queue = Arc::new(AudioBufferQueue::new(CH_BUF_SIZE * 2));
-    let packet_dur = Duration::from_secs_f64(CH_BUF_SIZE as f64 / HRIR_SAMPLE_RATE as f64);
+    let audio_queue = Arc::new(AudioSwapchain::new(CH_BUF_SIZE * NUM_OUT_CHANNELS, 3));
 
     let aq = Arc::clone(&audio_queue);
     let in_stream = input_dev
@@ -168,7 +168,7 @@ fn start_backend(
         .build_output_stream(
             &out_config,
             move |output: &mut [f32], _| {
-                let Some(buf) = aq.acquire_ready_buf(packet_dur) else {
+                let Some(buf) = aq.acquire_ready_buf() else {
                     return;
                 };
                 output.copy_from_slice(&buf);
