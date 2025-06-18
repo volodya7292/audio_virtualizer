@@ -1,5 +1,6 @@
 [package]
 name = "audio_virtualizer"
+description = "A simple audio visualizer for macOS."
 authors = ["Volodymyr Shulakov <a7292969@gmail.com>"]
 version = "0.1.0"
 edition = "2024"
@@ -19,3 +20,10 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 directories = "6.0"
 lazy_static = "1.5"
+
+[package.metadata.bundle]
+name = "Audio Virtualizer"
+identifier = "com.volodya7292.audio_virtualizer"
+copyright = "2025 Volodymyr Shulakov"
+icon = ["res/icon.png"]
+osx_info_plist_exts = ["Info.plist.ext"]

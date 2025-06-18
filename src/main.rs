@@ -18,7 +18,7 @@ fn main() {
         // hide the app from the dock
         use winit::platform::macos::EventLoopBuilderExtMacOS;
         event_loop_builder
-            .with_activation_policy(winit::platform::macos::ActivationPolicy::Accessory);
+            .with_activation_policy(winit::platform::macos::ActivationPolicy::Prohibited);
     }
 
     let event_loop = event_loop_builder.build().unwrap();

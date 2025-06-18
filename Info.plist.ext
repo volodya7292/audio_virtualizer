@@ -1,0 +1,4 @@
+<key>NSMicrophoneUsageDescription</key>
+<string>This app requires microphone access for real-time audio source processing.</string>
+<key>LSUIElement</key>
+<string>YES</string>
