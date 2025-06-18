@@ -169,9 +169,7 @@ fn start_backend(
             &out_config,
             move |output: &mut [f32], _| {
                 let Some(buf) = aq.acquire_ready_buf() else {
-                    for buf in output.iter_mut() {
-                        *buf = cpal::Sample::EQUILIBRIUM;
-                    }
+                    output.fill(cpal::Sample::EQUILIBRIUM);
                     return;
                 };
                 output.copy_from_slice(&buf);
