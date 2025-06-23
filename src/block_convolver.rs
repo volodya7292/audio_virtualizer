@@ -3,7 +3,7 @@ use num_traits::Zero;
 use rustfft::Fft;
 use std::{collections::VecDeque, iter, sync::Arc, vec};
 
-pub struct BlockConvoler {
+pub struct BlockConvolver {
     block_size: usize,
     fft_solver: Arc<dyn Fft<f32>>,
     fft_inv_solver: Arc<dyn Fft<f32>>,
@@ -14,7 +14,7 @@ pub struct BlockConvoler {
     accum_tmp: Vec<Complex<f32>>,
 }
 
-impl BlockConvoler {
+impl BlockConvolver {
     pub fn new(block_size: usize, hrir: &[f32]) -> Self {
         let window_size = block_size * 2;
         let fft_solver = rustfft::FftPlanner::<f32>::new().plan_fft_forward(window_size);
@@ -87,9 +87,8 @@ impl BlockConvoler {
             .rev()
             .zip(self.hrtf_blocks.iter())
             .fold(&mut self.accum_tmp, |accum, (signal_fft, hrtf)| {
-                for (accum, (signal_fft, hrtf)) in accum.iter_mut().zip(signal_fft.iter().zip(hrtf))
-                {
-                    *accum += signal_fft * hrtf;
+                for (accum, (s, h)) in accum.iter_mut().zip(signal_fft.iter().zip(hrtf)) {
+                    *accum += s * h;
                 }
                 accum
             });
@@ -102,7 +101,6 @@ impl BlockConvoler {
             *out = res.re;
         }
 
-        self.signal_double_block
-            .copy_within(self.block_size.., 0);
+        self.signal_double_block.copy_within(self.block_size.., 0);
     }
 }

@@ -1,4 +1,5 @@
-use crate::block_convolver::BlockConvoler;
+use crate::audio_data::{AudioDataMut, AudioDataRef};
+use crate::block_convolver::BlockConvolver;
 use std::io::Cursor;
 
 pub struct SurroundVirtualizerConfig<'a> {
@@ -14,32 +15,30 @@ pub struct SurroundVirtualizerConfig<'a> {
 }
 
 struct BinauralConvolver {
-    left: BlockConvoler,
-    right: BlockConvoler,
-    left_buf: Vec<f32>,
-    right_buf: Vec<f32>,
+    left: BlockConvolver,
+    right: BlockConvolver,
+    left_out: Vec<f32>,
+    right_out: Vec<f32>,
 }
 
 impl BinauralConvolver {
     pub fn new(block_size: usize, left: Vec<f32>, right: Vec<f32>) -> Self {
         Self {
-            left: BlockConvoler::new(block_size, &left),
-            right: BlockConvoler::new(block_size, &right),
-            left_buf: vec![0.0; block_size],
-            right_buf: vec![0.0; block_size],
+            left: BlockConvolver::new(block_size, &left),
+            right: BlockConvolver::new(block_size, &right),
+            left_out: vec![0.0; block_size],
+            right_out: vec![0.0; block_size],
         }
     }
 
-    pub fn process(&mut self, input_block: &[f32], ch_idx: usize, num_input_channels: usize) {
-        let input_ch = input_block.iter().skip(ch_idx).step_by(num_input_channels);
-
-        for (i, v) in input_ch.enumerate() {
-            self.left_buf[i] = *v;
+    pub fn process<'a>(&mut self, input_ch_block: impl Iterator<Item = &'a f32>) {
+        for (i, v) in input_ch_block.enumerate() {
+            self.left_out[i] = *v;
         }
-        self.right_buf.copy_from_slice(&self.left_buf);
+        self.right_out.copy_from_slice(&self.left_out);
 
-        self.left.process(&mut self.left_buf);
-        self.right.process(&mut self.right_buf);
+        self.left.process(&mut self.left_out);
+        self.right.process(&mut self.right_out);
     }
 }
 
@@ -84,76 +83,66 @@ impl SurroundVirtualizer {
         }
     }
 
-    pub fn process(
-        &mut self,
-        input_block: &[f32],
-        num_input_channels: usize,
-        stereo_output: &mut [f32],
-    ) {
-        assert_eq!(stereo_output.len(), self.block_size * 2);
+    pub fn process(&mut self, input_block: &AudioDataRef, stereo_output: &mut AudioDataMut) {
+        assert_eq!(stereo_output.data.len(), self.block_size * 2);
 
-        self.fl_conv.process(input_block, 0, num_input_channels);
-        self.fr_conv.process(input_block, 1, num_input_channels);
-        self.fc_conv.process(input_block, 2, num_input_channels);
-        self.lfe_conv.process(input_block, 3, num_input_channels);
-        self.sl_conv.process(input_block, 4, num_input_channels);
-        self.sr_conv.process(input_block, 5, num_input_channels);
-        self.bl_conv.process(input_block, 6, num_input_channels);
-        self.br_conv.process(input_block, 7, num_input_channels);
+        self.fl_conv.process(input_block.select_channel(0));
+        self.fr_conv.process(input_block.select_channel(1));
+        self.fc_conv.process(input_block.select_channel(2));
+        self.lfe_conv.process(input_block.select_channel(3));
+        self.sl_conv.process(input_block.select_channel(4));
+        self.sr_conv.process(input_block.select_channel(5));
+        self.bl_conv.process(input_block.select_channel(6));
+        self.br_conv.process(input_block.select_channel(7));
 
-        for i in 0..self.block_size {
-            stereo_output[i * 2] = self.fl_conv.left_buf[i]
-                + self.fr_conv.left_buf[i]
-                + Self::CENTER_GAIN * self.fc_conv.left_buf[i]
-                + Self::BACK_GAIN * self.bl_conv.left_buf[i]
-                + Self::BACK_GAIN * self.br_conv.left_buf[i]
-                + Self::SIDE_GAIN * self.sl_conv.left_buf[i]
-                + Self::SIDE_GAIN * self.sr_conv.left_buf[i]
-                + Self::LFE_GAIN * self.lfe_conv.left_buf[i];
-            stereo_output[i * 2 + 1] = self.fl_conv.right_buf[i]
-                + self.fr_conv.right_buf[i]
-                + Self::CENTER_GAIN * self.fc_conv.right_buf[i]
-                + Self::BACK_GAIN * self.bl_conv.right_buf[i]
-                + Self::BACK_GAIN * self.br_conv.right_buf[i]
-                + Self::SIDE_GAIN * self.sl_conv.right_buf[i]
-                + Self::SIDE_GAIN * self.sr_conv.right_buf[i]
-                + Self::LFE_GAIN * self.lfe_conv.right_buf[i];
+        let left_ch = stereo_output.select_channel_mut(0);
+        for (i, v) in left_ch.enumerate() {
+            *v = self.fl_conv.left_out[i]
+                + self.fr_conv.left_out[i]
+                + Self::CENTER_GAIN * self.fc_conv.left_out[i]
+                + Self::BACK_GAIN * self.bl_conv.left_out[i]
+                + Self::BACK_GAIN * self.br_conv.left_out[i]
+                + Self::SIDE_GAIN * self.sl_conv.left_out[i]
+                + Self::SIDE_GAIN * self.sr_conv.left_out[i]
+                + Self::LFE_GAIN * self.lfe_conv.left_out[i];
+        }
+
+        let right_ch = stereo_output.select_channel_mut(1);
+        for (i, v) in right_ch.enumerate() {
+            *v = self.fl_conv.right_out[i]
+                + self.fr_conv.right_out[i]
+                + Self::CENTER_GAIN * self.fc_conv.right_out[i]
+                + Self::BACK_GAIN * self.bl_conv.right_out[i]
+                + Self::BACK_GAIN * self.br_conv.right_out[i]
+                + Self::SIDE_GAIN * self.sl_conv.right_out[i]
+                + Self::SIDE_GAIN * self.sr_conv.right_out[i]
+                + Self::LFE_GAIN * self.lfe_conv.right_out[i];
         }
     }
 }
 pub struct Equalizer {
-    left: BlockConvoler,
-    right: BlockConvoler,
-    buf: Vec<f32>,
+    left: BlockConvolver,
+    right: BlockConvolver,
+    scratch: Vec<f32>,
 }
 
 impl Equalizer {
     pub fn new(block_size: usize, eqir: Vec<f32>) -> Self {
         Self {
-            left: BlockConvoler::new(block_size, &eqir),
-            right: BlockConvoler::new(block_size, &eqir),
-            buf: vec![0.0; block_size],
+            left: BlockConvolver::new(block_size, &eqir),
+            right: BlockConvolver::new(block_size, &eqir),
+            scratch: vec![0.0; block_size],
         }
     }
 
-    pub fn process(&mut self, stereo_signal: &mut [f32]) {
-        let left_ch = stereo_signal.iter().step_by(2);
-        for (i, v) in left_ch.enumerate() {
-            self.buf[i] = *v;
-        }
-        self.left.process(&mut self.buf);
-        for (i, v) in self.buf.iter().enumerate() {
-            stereo_signal[i * 2] = *v;
-        }
+    pub fn process(&mut self, stereo_data: &mut AudioDataMut<'_>) {
+        stereo_data.copy_channel_to_slice(0, &mut self.scratch);
+        self.left.process(&mut self.scratch);
+        stereo_data.copy_channel_from_slice(0, &self.scratch);
 
-        let right_ch = stereo_signal.iter().skip(1).step_by(2);
-        for (i, v) in right_ch.enumerate() {
-            self.buf[i] = *v;
-        }
-        self.right.process(&mut self.buf);
-        for (i, v) in self.buf.iter().enumerate() {
-            stereo_signal[i * 2 + 1] = *v;
-        }
+        stereo_data.copy_channel_to_slice(1, &mut self.scratch);
+        self.right.process(&mut self.scratch);
+        stereo_data.copy_channel_from_slice(1, &self.scratch);
     }
 }
 

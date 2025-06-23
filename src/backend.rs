@@ -1,4 +1,5 @@
 use crate::{
+    audio_data::{AudioDataMut, AudioDataRef},
     audio_swapchain::AudioSwapchain,
     config::{self, EqualizerProfile},
     surround_virtualizer::{Equalizer, SurroundVirtualizer, SurroundVirtualizerConfig, wav_to_pcm},
@@ -143,13 +144,17 @@ fn start_backend(
                 let Some(mut buf) = aq.acquire_free_buf() else {
                     return;
                 };
-                sv.process(input, in_config.channels as usize, &mut buf);
+
+                let surround_adata = AudioDataRef::new(input, in_config.channels as usize);
+                let mut stereo_adata = AudioDataMut::new(&mut buf, out_config.channels as usize);
+
+                sv.process(&surround_adata, &mut stereo_adata);
 
                 let current_profile = CURRENT_EQ_PROFILE.load(atomic::Ordering::Relaxed);
                 match EqualizerProfile::from_u32(current_profile).unwrap() {
-                    EqualizerProfile::Earpods => eq_earpods.process(&mut buf),
-                    EqualizerProfile::K702 => eq_k702.process(&mut buf),
-                    EqualizerProfile::DT770Pro => eq_dt770pro.process(&mut buf),
+                    EqualizerProfile::Earpods => eq_earpods.process(&mut stereo_adata),
+                    EqualizerProfile::K702 => eq_k702.process(&mut stereo_adata),
+                    EqualizerProfile::DT770Pro => eq_dt770pro.process(&mut stereo_adata),
                     _ => {}
                 }
 
