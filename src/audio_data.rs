@@ -12,6 +12,10 @@ impl<'a> AudioDataRef<'a> {
         Self { data, num_channels }
     }
 
+    pub fn num_channels(&self) -> usize {
+        self.num_channels
+    }
+
     pub fn select_channel(&self, ch_idx: usize) -> impl Iterator<Item = &'a f32> {
         self.data.iter().skip(ch_idx).step_by(self.num_channels)
     }

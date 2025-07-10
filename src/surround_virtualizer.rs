@@ -83,7 +83,7 @@ impl SurroundVirtualizer {
         }
     }
 
-    pub fn process(&mut self, input_block: &AudioDataRef, stereo_output: &mut AudioDataMut) {
+    pub fn process_ch8(&mut self, input_block: &AudioDataRef, stereo_output: &mut AudioDataMut) {
         assert_eq!(stereo_output.data.len(), self.block_size * 2);
 
         self.fl_conv.process(input_block.select_channel(0));
@@ -117,6 +117,24 @@ impl SurroundVirtualizer {
                 + Self::SIDE_GAIN * self.sl_conv.right_out[i]
                 + Self::SIDE_GAIN * self.sr_conv.right_out[i]
                 + Self::LFE_GAIN * self.lfe_conv.right_out[i];
+        }
+    }
+
+    pub fn process_mono(&mut self, mono_input: &AudioDataRef, stereo_output: &mut AudioDataMut) {
+        assert_eq!(stereo_output.data.len(), self.block_size * 2);
+        assert_eq!(mono_input.num_channels(), 1);
+
+        self.fl_conv.process(mono_input.select_channel(0));
+        self.fr_conv.process(mono_input.select_channel(0));
+
+        let left_ch = stereo_output.select_channel_mut(0);
+        for (i, v) in left_ch.enumerate() {
+            *v = self.fl_conv.left_out[i] + self.fr_conv.left_out[i];
+        }
+
+        let right_ch = stereo_output.select_channel_mut(1);
+        for (i, v) in right_ch.enumerate() {
+            *v = self.fl_conv.right_out[i] + self.fr_conv.right_out[i];
         }
     }
 }

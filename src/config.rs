@@ -7,7 +7,8 @@ lazy_static! {
     static ref APP_CONFIG: Mutex<AppConfig> = Mutex::new(AppConfig {
         equalizer_profile: EqualizerProfile::None,
         input_device_name: None,
-        output_device_name: None
+        output_device_name: None,
+        audio_source_mode: AudioSourceMode::Universal,
     });
 }
 
@@ -16,6 +17,7 @@ pub struct AppConfig {
     pub equalizer_profile: EqualizerProfile,
     pub input_device_name: Option<String>,
     pub output_device_name: Option<String>,
+    pub audio_source_mode: AudioSourceMode,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, FromPrimitive, Serialize, Deserialize)]
@@ -24,6 +26,12 @@ pub enum EqualizerProfile {
     Earpods,
     K702,
     DT770Pro,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, FromPrimitive, Serialize, Deserialize)]
+pub enum AudioSourceMode {
+    Universal,
+    Mono,
 }
 
 fn get_config_path() -> PathBuf {

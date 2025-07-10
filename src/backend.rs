@@ -1,7 +1,7 @@
 use crate::{
     audio_data::{AudioDataMut, AudioDataRef},
     audio_swapchain::AudioSwapchain,
-    config::{self, EqualizerProfile},
+    config::{self, EqualizerProfile, AudioSourceMode},
     surround_virtualizer::{Equalizer, SurroundVirtualizer, SurroundVirtualizerConfig, wav_to_pcm},
 };
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -76,6 +76,11 @@ fn start_backend(
         .as_deref()
         .unwrap_or(DEFAULT_OUTPUT_DEVICE_NAME);
 
+    let input_channels = match config.audio_source_mode {
+        AudioSourceMode::Universal => NUM_SURROUND_CHANNELS,
+        AudioSourceMode::Mono => 1,
+    };
+
     let virt_config = SurroundVirtualizerConfig {
         fc_wav: FC_WAV,
         bl_wav: BL_WAV,
@@ -123,7 +128,7 @@ fn start_backend(
     output_dev.as_inner();
 
     let in_config = cpal::StreamConfig {
-        channels: NUM_SURROUND_CHANNELS as u16,
+        channels: input_channels as u16,
         sample_rate: cpal::SampleRate(HRIR_SAMPLE_RATE),
         buffer_size: cpal::BufferSize::Fixed(CH_BUF_SIZE as u32),
     };
@@ -137,6 +142,7 @@ fn start_backend(
     let audio_queue = Arc::new(AudioSwapchain::new(CH_BUF_SIZE * NUM_OUT_CHANNELS, 3));
 
     let aq = Arc::clone(&audio_queue);
+    let source_mode = config.audio_source_mode;
     let in_stream = input_dev
         .build_input_stream(
             &in_config,
@@ -145,10 +151,17 @@ fn start_backend(
                     return;
                 };
 
-                let surround_adata = AudioDataRef::new(input, in_config.channels as usize);
+                let input_adata = AudioDataRef::new(input, in_config.channels as usize);
                 let mut stereo_adata = AudioDataMut::new(&mut buf, out_config.channels as usize);
 
-                sv.process(&surround_adata, &mut stereo_adata);
+                match source_mode {
+                    AudioSourceMode::Universal => {
+                        sv.process_ch8(&input_adata, &mut stereo_adata);
+                    }
+                    AudioSourceMode::Mono => {
+                        sv.process_mono(&input_adata, &mut stereo_adata);
+                    }
+                }
 
                 let current_profile = CURRENT_EQ_PROFILE.load(atomic::Ordering::Relaxed);
                 match EqualizerProfile::from_u32(current_profile).unwrap() {

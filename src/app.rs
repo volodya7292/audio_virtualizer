@@ -1,6 +1,6 @@
 use crate::{
     backend,
-    config::{self, AppConfig, EqualizerProfile},
+    config::{self, AppConfig, EqualizerProfile, AudioSourceMode},
 };
 use std::collections::HashMap;
 use std::io::Cursor;
@@ -24,6 +24,8 @@ pub struct App {
     eq_earpods_item: CheckMenuItem,
     eq_k702_item: CheckMenuItem,
     eq_dt770pro_item: CheckMenuItem,
+    source_universal_item: CheckMenuItem,
+    source_mono_item: CheckMenuItem,
     input_device_submenu: Submenu,
     output_device_submenu: Submenu,
     input_device_items: HashMap<String, CheckMenuItem>,
@@ -45,11 +47,19 @@ impl App {
         eq_submenu.append(&eq_k702_item).unwrap();
         eq_submenu.append(&eq_dt770pro_item).unwrap();
 
+        let source_universal_item = menu::CheckMenuItem::new("Universal", true, true, None);
+        let source_mono_item = menu::CheckMenuItem::new("Mono", true, false, None);
+
+        let source_submenu = menu::Submenu::new("Audio Source Mode", true);
+        source_submenu.append(&source_universal_item).unwrap();
+        source_submenu.append(&source_mono_item).unwrap();
+
         let input_device_submenu = menu::Submenu::new("Surround Audio Source", true);
         let output_device_submenu = menu::Submenu::new("Stereo Output Device", true);
 
         let tray_menu = Menu::new();
         tray_menu.append(&eq_submenu).unwrap();
+        tray_menu.append(&source_submenu).unwrap();
         tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
         tray_menu.append(&input_device_submenu).unwrap();
         tray_menu.append(&output_device_submenu).unwrap();
@@ -82,6 +92,8 @@ impl App {
             eq_earpods_item,
             eq_k702_item,
             eq_dt770pro_item,
+            source_universal_item,
+            source_mono_item,
             input_device_submenu,
             output_device_submenu,
             input_device_items: HashMap::new(),
@@ -104,6 +116,19 @@ impl App {
         config::update(|cfg| {
             cfg.equalizer_profile = profile;
         });
+    }
+
+    fn select_source_mode(&mut self, mode: AudioSourceMode) {
+        self.source_universal_item.set_checked(false);
+        self.source_mono_item.set_checked(false);
+        match mode {
+            AudioSourceMode::Universal => self.source_universal_item.set_checked(true),
+            AudioSourceMode::Mono => self.source_mono_item.set_checked(true),
+        }
+        config::update(|cfg| {
+            cfg.audio_source_mode = mode;
+        });
+        backend::reload_backend();
     }
 
     fn refresh_audio_device_lists(&mut self, config: &AppConfig) {
@@ -175,6 +200,7 @@ impl App {
     pub fn update_from_config(&mut self, config: &AppConfig) {
         self.refresh_audio_device_lists(config);
         self.select_eq_item(config.equalizer_profile);
+        self.select_source_mode(config.audio_source_mode);
         self.select_input_device(
             config
                 .input_device_name
@@ -208,6 +234,10 @@ impl ApplicationHandler<AppUserEvent> for App {
                     self.select_eq_item(EqualizerProfile::K702);
                 } else if menu_id == self.eq_dt770pro_item.id() {
                     self.select_eq_item(EqualizerProfile::DT770Pro);
+                } else if menu_id == self.source_universal_item.id() {
+                    self.select_source_mode(AudioSourceMode::Universal);
+                } else if menu_id == self.source_mono_item.id() {
+                    self.select_source_mode(AudioSourceMode::Mono);
                 } else {
                     let mut selected_input_device = None;
                     for (device_name, item) in &self.input_device_items {
