@@ -31,6 +31,7 @@ pub enum EqualizerProfile {
 #[derive(Debug, Clone, Copy, PartialEq, FromPrimitive, Serialize, Deserialize)]
 pub enum AudioSourceMode {
     Universal,
+    Stereo,
     Mono,
 }
 

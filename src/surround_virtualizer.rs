@@ -55,11 +55,6 @@ pub struct SurroundVirtualizer {
 }
 
 impl SurroundVirtualizer {
-    const CENTER_GAIN: f32 = 0.5 * std::f32::consts::SQRT_2;
-    const SIDE_GAIN: f32 = 0.5 * std::f32::consts::SQRT_2;
-    const BACK_GAIN: f32 = 0.5 * std::f32::consts::SQRT_2;
-    const LFE_GAIN: f32 = 0.25;
-
     pub fn new(config: &SurroundVirtualizerConfig) -> Self {
         let fl = wav_to_binaural_convolver(&config.fl_wav, config.block_size);
         let fr = wav_to_binaural_convolver(&config.fr_wav, config.block_size);
@@ -84,6 +79,11 @@ impl SurroundVirtualizer {
     }
 
     pub fn process_ch8(&mut self, input_block: &AudioDataRef, stereo_output: &mut AudioDataMut) {
+        const CENTER_GAIN: f32 = 0.5 * std::f32::consts::SQRT_2;
+        const SIDE_GAIN: f32 = 0.5 * std::f32::consts::SQRT_2;
+        const BACK_GAIN: f32 = 0.5 * std::f32::consts::SQRT_2;
+        const LFE_GAIN: f32 = 0.25;
+
         assert_eq!(stereo_output.data.len(), self.block_size * 2);
 
         self.fl_conv.process(input_block.select_channel(0));
@@ -99,30 +99,57 @@ impl SurroundVirtualizer {
         for (i, v) in left_ch.enumerate() {
             *v = self.fl_conv.left_out[i]
                 + self.fr_conv.left_out[i]
-                + Self::CENTER_GAIN * self.fc_conv.left_out[i]
-                + Self::BACK_GAIN * self.bl_conv.left_out[i]
-                + Self::BACK_GAIN * self.br_conv.left_out[i]
-                + Self::SIDE_GAIN * self.sl_conv.left_out[i]
-                + Self::SIDE_GAIN * self.sr_conv.left_out[i]
-                + Self::LFE_GAIN * self.lfe_conv.left_out[i];
+                + CENTER_GAIN * self.fc_conv.left_out[i]
+                + BACK_GAIN * self.bl_conv.left_out[i]
+                + BACK_GAIN * self.br_conv.left_out[i]
+                + SIDE_GAIN * self.sl_conv.left_out[i]
+                + SIDE_GAIN * self.sr_conv.left_out[i]
+                + LFE_GAIN * self.lfe_conv.left_out[i];
         }
 
         let right_ch = stereo_output.select_channel_mut(1);
         for (i, v) in right_ch.enumerate() {
             *v = self.fl_conv.right_out[i]
                 + self.fr_conv.right_out[i]
-                + Self::CENTER_GAIN * self.fc_conv.right_out[i]
-                + Self::BACK_GAIN * self.bl_conv.right_out[i]
-                + Self::BACK_GAIN * self.br_conv.right_out[i]
-                + Self::SIDE_GAIN * self.sl_conv.right_out[i]
-                + Self::SIDE_GAIN * self.sr_conv.right_out[i]
-                + Self::LFE_GAIN * self.lfe_conv.right_out[i];
+                + CENTER_GAIN * self.fc_conv.right_out[i]
+                + BACK_GAIN * self.bl_conv.right_out[i]
+                + BACK_GAIN * self.br_conv.right_out[i]
+                + SIDE_GAIN * self.sl_conv.right_out[i]
+                + SIDE_GAIN * self.sr_conv.right_out[i]
+                + LFE_GAIN * self.lfe_conv.right_out[i];
+        }
+    }
+
+    pub fn process_ch2(&mut self, input_block: &AudioDataRef, stereo_output: &mut AudioDataMut) {
+        const FRONT_GAIN: f32 = 0.8;
+        const SIDE_GAIN: f32 = 0.4;
+
+        assert_eq!(stereo_output.data.len(), self.block_size * 2);
+
+        self.fl_conv.process(input_block.select_channel(0));
+        self.fr_conv.process(input_block.select_channel(1));
+        self.sl_conv.process(input_block.select_channel(0));
+        self.sr_conv.process(input_block.select_channel(1));
+
+        let left_ch = stereo_output.select_channel_mut(0);
+        for (i, v) in left_ch.enumerate() {
+            *v = FRONT_GAIN * self.fl_conv.left_out[i]
+                + FRONT_GAIN * self.fr_conv.left_out[i]
+                + SIDE_GAIN * self.sl_conv.left_out[i]
+                + SIDE_GAIN * self.sr_conv.left_out[i];
+        }
+
+        let right_ch = stereo_output.select_channel_mut(1);
+        for (i, v) in right_ch.enumerate() {
+            *v = FRONT_GAIN * self.fl_conv.right_out[i]
+                + FRONT_GAIN * self.fr_conv.right_out[i]
+                + SIDE_GAIN * self.sl_conv.right_out[i]
+                + SIDE_GAIN * self.sr_conv.right_out[i];
         }
     }
 
     pub fn process_mono(&mut self, mono_input: &AudioDataRef, stereo_output: &mut AudioDataMut) {
         assert_eq!(stereo_output.data.len(), self.block_size * 2);
-        assert_eq!(mono_input.num_channels(), 1);
 
         self.fl_conv.process(mono_input.select_channel(0));
         self.fr_conv.process(mono_input.select_channel(0));

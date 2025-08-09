@@ -78,6 +78,7 @@ fn start_backend(
 
     let input_channels = match config.audio_source_mode {
         AudioSourceMode::Universal => NUM_SURROUND_CHANNELS,
+        AudioSourceMode::Stereo => 2,
         AudioSourceMode::Mono => 1,
     };
 
@@ -157,6 +158,9 @@ fn start_backend(
                 match source_mode {
                     AudioSourceMode::Universal => {
                         sv.process_ch8(&input_adata, &mut stereo_adata);
+                    }
+                    AudioSourceMode::Stereo => {
+                        sv.process_ch2(&input_adata, &mut stereo_adata);
                     }
                     AudioSourceMode::Mono => {
                         sv.process_mono(&input_adata, &mut stereo_adata);

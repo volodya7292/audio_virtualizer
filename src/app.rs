@@ -25,6 +25,7 @@ pub struct App {
     eq_k702_item: CheckMenuItem,
     eq_dt770pro_item: CheckMenuItem,
     source_universal_item: CheckMenuItem,
+    source_stereo_item: CheckMenuItem,
     source_mono_item: CheckMenuItem,
     input_device_submenu: Submenu,
     output_device_submenu: Submenu,
@@ -48,10 +49,12 @@ impl App {
         eq_submenu.append(&eq_dt770pro_item).unwrap();
 
         let source_universal_item = menu::CheckMenuItem::new("Universal", true, true, None);
+        let source_stereo_item = menu::CheckMenuItem::new("Stereo", true, false, None);
         let source_mono_item = menu::CheckMenuItem::new("Mono", true, false, None);
 
         let source_submenu = menu::Submenu::new("Audio Source Mode", true);
         source_submenu.append(&source_universal_item).unwrap();
+        source_submenu.append(&source_stereo_item).unwrap();
         source_submenu.append(&source_mono_item).unwrap();
 
         let input_device_submenu = menu::Submenu::new("Surround Audio Source", true);
@@ -93,6 +96,7 @@ impl App {
             eq_k702_item,
             eq_dt770pro_item,
             source_universal_item,
+            source_stereo_item,
             source_mono_item,
             input_device_submenu,
             output_device_submenu,
@@ -120,9 +124,11 @@ impl App {
 
     fn select_source_mode(&mut self, mode: AudioSourceMode) {
         self.source_universal_item.set_checked(false);
+        self.source_stereo_item.set_checked(false);
         self.source_mono_item.set_checked(false);
         match mode {
             AudioSourceMode::Universal => self.source_universal_item.set_checked(true),
+            AudioSourceMode::Stereo => self.source_stereo_item.set_checked(true),
             AudioSourceMode::Mono => self.source_mono_item.set_checked(true),
         }
         config::update(|cfg| {
@@ -236,6 +242,8 @@ impl ApplicationHandler<AppUserEvent> for App {
                     self.select_eq_item(EqualizerProfile::DT770Pro);
                 } else if menu_id == self.source_universal_item.id() {
                     self.select_source_mode(AudioSourceMode::Universal);
+                } else if menu_id == self.source_stereo_item.id() {
+                    self.select_source_mode(AudioSourceMode::Stereo);
                 } else if menu_id == self.source_mono_item.id() {
                     self.select_source_mode(AudioSourceMode::Mono);
                 } else {

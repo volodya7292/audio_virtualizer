@@ -17,6 +17,7 @@ impl<'a> AudioDataRef<'a> {
     }
 
     pub fn select_channel(&self, ch_idx: usize) -> impl Iterator<Item = &'a f32> {
+        assert!(ch_idx < self.num_channels, "channel index out of bounds");
         self.data.iter().skip(ch_idx).step_by(self.num_channels)
     }
 }
