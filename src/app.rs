@@ -1,9 +1,10 @@
 use crate::{
     backend,
-    config::{self, AppConfig, EqualizerProfile, AudioSourceMode},
+    config::{self, AppConfig, AudioSourceMode, EqualizerProfile},
 };
 use std::collections::HashMap;
 use std::io::Cursor;
+use strum::IntoEnumIterator;
 use tray_icon::{
     Icon, TrayIcon, TrayIconBuilder, TrayIconEvent,
     menu::{self, CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
@@ -20,13 +21,8 @@ pub enum AppUserEvent {
 pub struct App {
     _tray_icon: TrayIcon,
     quit_menu_item: MenuItem,
-    eq_none_item: CheckMenuItem,
-    eq_earpods_item: CheckMenuItem,
-    eq_k702_item: CheckMenuItem,
-    eq_dt770pro_item: CheckMenuItem,
-    source_universal_item: CheckMenuItem,
-    source_stereo_item: CheckMenuItem,
-    source_mono_item: CheckMenuItem,
+    eq_items: Vec<(EqualizerProfile, CheckMenuItem)>,
+    source_items: Vec<(AudioSourceMode, CheckMenuItem)>,
     input_device_submenu: Submenu,
     output_device_submenu: Submenu,
     input_device_items: HashMap<String, CheckMenuItem>,
@@ -37,25 +33,24 @@ impl App {
     pub fn new() -> Self {
         let quit_menu_item = menu::MenuItem::new("Quit", true, None);
 
-        let eq_none_item = menu::CheckMenuItem::new("None", true, true, None);
-        let eq_earpods_item = menu::CheckMenuItem::new("EarPods", true, false, None);
-        let eq_k702_item = menu::CheckMenuItem::new("K702", true, false, None);
-        let eq_dt770pro_item = menu::CheckMenuItem::new("DT 770 Pro", true, false, None);
-
+        let mut eq_items = Vec::new();
         let eq_submenu = menu::Submenu::new("Equalizer Profile", true);
-        eq_submenu.append(&eq_none_item).unwrap();
-        eq_submenu.append(&eq_earpods_item).unwrap();
-        eq_submenu.append(&eq_k702_item).unwrap();
-        eq_submenu.append(&eq_dt770pro_item).unwrap();
+        for profile in EqualizerProfile::iter() {
+            let checked = profile == EqualizerProfile::None;
+            let item = menu::CheckMenuItem::new(profile.label(), true, checked, None);
+            eq_submenu.append(&item).unwrap();
+            eq_items.push((profile, item));
+        }
 
-        let source_universal_item = menu::CheckMenuItem::new("Universal", true, true, None);
-        let source_stereo_item = menu::CheckMenuItem::new("Stereo", true, false, None);
-        let source_mono_item = menu::CheckMenuItem::new("Mono", true, false, None);
-
+        let mut source_items = Vec::new();
         let source_submenu = menu::Submenu::new("Audio Source Mode", true);
-        source_submenu.append(&source_universal_item).unwrap();
-        source_submenu.append(&source_stereo_item).unwrap();
-        source_submenu.append(&source_mono_item).unwrap();
+        for source in AudioSourceMode::iter() {
+            let checked = source == AudioSourceMode::Universal;
+            let label: &str = source.into();
+            let item = menu::CheckMenuItem::new(label, true, checked, None);
+            source_submenu.append(&item).unwrap();
+            source_items.push((source, item));
+        }
 
         let input_device_submenu = menu::Submenu::new("Surround Audio Source", true);
         let output_device_submenu = menu::Submenu::new("Stereo Output Device", true);
@@ -91,13 +86,8 @@ impl App {
         Self {
             _tray_icon: tray_icon,
             quit_menu_item,
-            eq_none_item,
-            eq_earpods_item,
-            eq_k702_item,
-            eq_dt770pro_item,
-            source_universal_item,
-            source_stereo_item,
-            source_mono_item,
+            eq_items,
+            source_items,
             input_device_submenu,
             output_device_submenu,
             input_device_items: HashMap::new(),
@@ -106,15 +96,8 @@ impl App {
     }
 
     fn select_eq_item(&mut self, profile: EqualizerProfile) {
-        self.eq_none_item.set_checked(false);
-        self.eq_earpods_item.set_checked(false);
-        self.eq_k702_item.set_checked(false);
-        self.eq_dt770pro_item.set_checked(false);
-        match profile {
-            EqualizerProfile::None => self.eq_none_item.set_checked(true),
-            EqualizerProfile::Earpods => self.eq_earpods_item.set_checked(true),
-            EqualizerProfile::K702 => self.eq_k702_item.set_checked(true),
-            EqualizerProfile::DT770Pro => self.eq_dt770pro_item.set_checked(true),
+        for (p, item) in &self.eq_items {
+            item.set_checked(*p == profile);
         }
         backend::set_equalizer_profile(profile);
         config::update(|cfg| {
@@ -123,13 +106,8 @@ impl App {
     }
 
     fn select_source_mode(&mut self, mode: AudioSourceMode) {
-        self.source_universal_item.set_checked(false);
-        self.source_stereo_item.set_checked(false);
-        self.source_mono_item.set_checked(false);
-        match mode {
-            AudioSourceMode::Universal => self.source_universal_item.set_checked(true),
-            AudioSourceMode::Stereo => self.source_stereo_item.set_checked(true),
-            AudioSourceMode::Mono => self.source_mono_item.set_checked(true),
+        for (s, item) in &self.source_items {
+            item.set_checked(*s == mode);
         }
         config::update(|cfg| {
             cfg.audio_source_mode = mode;
@@ -176,13 +154,9 @@ impl App {
     }
 
     fn select_input_device(&mut self, device_name: &str) {
-        for item in self.input_device_items.values() {
-            item.set_checked(false);
+        for (name, item) in &mut self.input_device_items {
+            item.set_checked(name == device_name);
         }
-        if let Some(item) = self.input_device_items.get(device_name) {
-            item.set_checked(true);
-        }
-
         config::update(|cfg| {
             cfg.input_device_name = Some(device_name.to_string());
         });
@@ -190,13 +164,9 @@ impl App {
     }
 
     fn select_output_device(&mut self, device_name: &str) {
-        for item in self.output_device_items.values() {
-            item.set_checked(false);
+        for (name, item) in &mut self.output_device_items {
+            item.set_checked(name == device_name);
         }
-        if let Some(item) = self.output_device_items.get(device_name) {
-            item.set_checked(true);
-        }
-
         config::update(|cfg| {
             cfg.output_device_name = Some(device_name.to_string());
         });
@@ -232,43 +202,28 @@ impl ApplicationHandler<AppUserEvent> for App {
 
                 if menu_id == self.quit_menu_item.id() {
                     event_loop.exit();
-                } else if menu_id == self.eq_none_item.id() {
-                    self.select_eq_item(EqualizerProfile::None);
-                } else if menu_id == self.eq_earpods_item.id() {
-                    self.select_eq_item(EqualizerProfile::Earpods);
-                } else if menu_id == self.eq_k702_item.id() {
-                    self.select_eq_item(EqualizerProfile::K702);
-                } else if menu_id == self.eq_dt770pro_item.id() {
-                    self.select_eq_item(EqualizerProfile::DT770Pro);
-                } else if menu_id == self.source_universal_item.id() {
-                    self.select_source_mode(AudioSourceMode::Universal);
-                } else if menu_id == self.source_stereo_item.id() {
-                    self.select_source_mode(AudioSourceMode::Stereo);
-                } else if menu_id == self.source_mono_item.id() {
-                    self.select_source_mode(AudioSourceMode::Mono);
-                } else {
-                    let mut selected_input_device = None;
-                    for (device_name, item) in &self.input_device_items {
-                        if menu_id == item.id() {
-                            selected_input_device = Some(device_name.clone());
-                            break;
-                        }
-                    }
-                    if let Some(device_name) = selected_input_device {
-                        self.select_input_device(&device_name);
-                        return;
-                    }
-
-                    let mut selected_output_device = None;
-                    for (device_name, item) in &self.output_device_items {
-                        if menu_id == item.id() {
-                            selected_output_device = Some(device_name.clone());
-                            break;
-                        }
-                    }
-                    if let Some(device_name) = selected_output_device {
-                        self.select_output_device(&device_name);
-                    }
+                } else if let Some((profile, _)) =
+                    self.eq_items.iter().find(|(_, item)| item.id() == menu_id)
+                {
+                    self.select_eq_item(*profile);
+                } else if let Some((source, _)) = self
+                    .source_items
+                    .iter()
+                    .find(|(_, item)| item.id() == menu_id)
+                {
+                    self.select_source_mode(*source);
+                } else if let Some((device_name, _)) = self
+                    .input_device_items
+                    .iter()
+                    .find(|(_, item)| item.id() == menu_id)
+                {
+                    self.select_input_device(&device_name.clone());
+                } else if let Some((device_name, _)) = self
+                    .output_device_items
+                    .iter()
+                    .find(|(_, item)| item.id() == menu_id)
+                {
+                    self.select_output_device(&device_name.clone());
                 }
             }
             AppUserEvent::TrayIconEvent(tray_icon_event) => {

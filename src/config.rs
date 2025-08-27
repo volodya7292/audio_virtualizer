@@ -1,5 +1,6 @@
 use lazy_static::lazy_static;
 use num_derive::FromPrimitive;
+use strum_macros::{EnumIter, IntoStaticStr};
 use serde::{Deserialize, Serialize};
 use std::{fs::File, path::PathBuf, sync::Mutex};
 
@@ -20,7 +21,7 @@ pub struct AppConfig {
     pub audio_source_mode: AudioSourceMode,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, FromPrimitive, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, FromPrimitive, Serialize, Deserialize, EnumIter)]
 pub enum EqualizerProfile {
     None,
     Earpods,
@@ -28,7 +29,18 @@ pub enum EqualizerProfile {
     DT770Pro,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, FromPrimitive, Serialize, Deserialize)]
+impl EqualizerProfile {
+    pub fn label(&self) -> &'static str {
+        match self {
+            EqualizerProfile::None => "None",
+            EqualizerProfile::Earpods => "EarPods",
+            EqualizerProfile::K702 => "K702",
+            EqualizerProfile::DT770Pro => "DT 770 Pro",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, FromPrimitive, Serialize, Deserialize, EnumIter, IntoStaticStr)]
 pub enum AudioSourceMode {
     Universal,
     Stereo,

@@ -14,12 +14,14 @@ num-complex = "0.4"
 num-traits = "0.2"
 num-derive = "0.4"
 winit = "0.30"
-tray-icon = "0.20"
+tray-icon = "0.21"
 png = "0.17"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 directories = "6.0"
 lazy_static = "1.5"
+strum = "0.27"
+strum_macros = "0.27"
 
 [package.metadata.bundle]
 name = "Audio Virtualizer"
