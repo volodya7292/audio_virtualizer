@@ -109,10 +109,10 @@ impl App {
         for (s, item) in &self.source_items {
             item.set_checked(*s == mode);
         }
+        backend::set_source_mode(mode);
         config::update(|cfg| {
             cfg.audio_source_mode = mode;
         });
-        backend::reload_backend();
     }
 
     fn refresh_audio_device_lists(&mut self, config: &AppConfig) {

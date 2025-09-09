@@ -24,7 +24,8 @@ pub struct AppConfig {
 #[derive(Debug, Clone, Copy, PartialEq, FromPrimitive, Serialize, Deserialize, EnumIter)]
 pub enum EqualizerProfile {
     None,
-    Earpods,
+    EarPods,
+    AirPods4,
     K702,
     DT770Pro,
 }
@@ -33,7 +34,8 @@ impl EqualizerProfile {
     pub fn label(&self) -> &'static str {
         match self {
             EqualizerProfile::None => "None",
-            EqualizerProfile::Earpods => "EarPods",
+            EqualizerProfile::EarPods => "EarPods",
+            EqualizerProfile::AirPods4 => "AirPods 4",
             EqualizerProfile::K702 => "K702",
             EqualizerProfile::DT770Pro => "DT 770 Pro",
         }
