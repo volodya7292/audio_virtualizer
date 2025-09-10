@@ -82,12 +82,6 @@ fn start_backend(
         .as_deref()
         .unwrap_or(DEFAULT_OUTPUT_DEVICE_NAME);
 
-    let input_channels = match config.audio_source_mode {
-        AudioSourceMode::Universal => NUM_SURROUND_CHANNELS,
-        AudioSourceMode::Stereo => 2,
-        AudioSourceMode::Mono => 1,
-    };
-
     let virt_config = SurroundVirtualizerConfig {
         fc_wav: FC_WAV,
         bl_wav: BL_WAV,
@@ -137,8 +131,7 @@ fn start_backend(
         .supported_input_configs()
         .unwrap()
         .filter(|conf| {
-            conf.channels() >= input_channels as u16
-                && (conf.min_sample_rate().0 <= HRIR_SAMPLE_RATE)
+            (conf.min_sample_rate().0 <= HRIR_SAMPLE_RATE)
                 && (conf.max_sample_rate().0 >= HRIR_SAMPLE_RATE)
         })
         .map(|conf| match conf.buffer_size() {
@@ -183,7 +176,7 @@ fn start_backend(
     };
 
     let in_config = cpal::StreamConfig {
-        channels: input_channels as u16,
+        channels: NUM_SURROUND_CHANNELS as u16,
         sample_rate: cpal::SampleRate(HRIR_SAMPLE_RATE),
         buffer_size: cpal::BufferSize::Fixed(input_buf_size as u32),
     };
@@ -195,8 +188,8 @@ fn start_backend(
     };
 
     let in_sw = Arc::new(AudioSwapchain::new(
-        input_buf_size * input_channels as usize,
-        CH_BUF_SIZE * input_channels as usize,
+        input_buf_size * NUM_SURROUND_CHANNELS as usize,
+        CH_BUF_SIZE * NUM_SURROUND_CHANNELS as usize,
         3,
     ));
     let out_sw = Arc::new(AudioSwapchain::new(
