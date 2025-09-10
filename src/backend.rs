@@ -197,7 +197,7 @@ fn start_backend(
     let in_sw = Arc::new(AudioSwapchain::new(
         input_buf_size * in_config.channels as usize,
         CH_BUF_SIZE * in_config.channels as usize,
-        3,
+        1,
     ));
     let out_sw = Arc::new(AudioSwapchain::new(
         CH_BUF_SIZE * NUM_OUT_CHANNELS as usize,

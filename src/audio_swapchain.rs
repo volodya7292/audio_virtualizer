@@ -30,12 +30,14 @@ impl Drop for AudioBuffer<'_> {
 }
 
 impl AudioSwapchain {
-    pub fn new(in_buf_size: usize, out_buf_size: usize, n_packets: usize) -> Self {
-        let rb_size = in_buf_size.max(out_buf_size) * n_packets;
+    pub fn new(in_buf_size: usize, out_buf_size: usize, min_num_packets: usize) -> Self {
+        let rb_size = in_buf_size.max(out_buf_size) * min_num_packets;
 
         let rb = cq::ConcurrentQueue::bounded(rb_size);
-        let input_bufs = cq::ConcurrentQueue::bounded(n_packets);
-        let output_bufs = cq::ConcurrentQueue::bounded(n_packets);
+        let input_bufs =
+            cq::ConcurrentQueue::bounded(rb_size.next_multiple_of(in_buf_size) / in_buf_size);
+        let output_bufs =
+            cq::ConcurrentQueue::bounded(rb_size.next_multiple_of(out_buf_size) / out_buf_size);
 
         for _ in 0..input_bufs.capacity().unwrap() {
             input_bufs.push(vec![0.0; in_buf_size]).unwrap();
