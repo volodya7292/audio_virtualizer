@@ -127,20 +127,27 @@ fn start_backend(
         return;
     };
 
-    let input_buf_size = input_dev
+    let input_selection = input_dev
         .supported_input_configs()
         .unwrap()
         .filter(|conf| {
             (conf.min_sample_rate().0 <= HRIR_SAMPLE_RATE)
                 && (conf.max_sample_rate().0 >= HRIR_SAMPLE_RATE)
         })
-        .map(|conf| match conf.buffer_size() {
-            cpal::SupportedBufferSize::Range { min, max } => {
-                CH_BUF_SIZE.clamp(*min as usize, *max as usize)
-            }
-            _ => CH_BUF_SIZE,
+        .map(|conf| {
+            let buf_sz = match conf.buffer_size() {
+                cpal::SupportedBufferSize::Range { min, max } => {
+                    CH_BUF_SIZE.clamp(*min as usize, *max as usize)
+                }
+                _ => CH_BUF_SIZE,
+            };
+            let ch = conf.channels();
+            (buf_sz, ch)
         })
-        .min_by_key(|buf_size| (*buf_size as isize - CH_BUF_SIZE as isize).abs());
+        .min_by_key(|(buf_sz, ch)| {
+            let dist_ch = (*ch as isize - NUM_SURROUND_CHANNELS as isize).abs();
+            (dist_ch, (*buf_sz as isize - CH_BUF_SIZE as isize).abs())
+        });
 
     let output_buf_size = output_dev
         .supported_output_configs()
@@ -158,7 +165,7 @@ fn start_backend(
         })
         .min_by_key(|buf_size| (*buf_size as isize - CH_BUF_SIZE as isize).abs());
 
-    let Some(input_buf_size) = input_buf_size else {
+    let Some((input_buf_size, in_selected_channels)) = input_selection else {
         println!(
             "Error: No supported input config found for device '{}'",
             input_device_name
@@ -176,7 +183,7 @@ fn start_backend(
     };
 
     let in_config = cpal::StreamConfig {
-        channels: NUM_SURROUND_CHANNELS as u16,
+        channels: in_selected_channels,
         sample_rate: cpal::SampleRate(HRIR_SAMPLE_RATE),
         buffer_size: cpal::BufferSize::Fixed(input_buf_size as u32),
     };
@@ -188,8 +195,8 @@ fn start_backend(
     };
 
     let in_sw = Arc::new(AudioSwapchain::new(
-        input_buf_size * NUM_SURROUND_CHANNELS as usize,
-        CH_BUF_SIZE * NUM_SURROUND_CHANNELS as usize,
+        input_buf_size * in_config.channels as usize,
+        CH_BUF_SIZE * in_config.channels as usize,
         3,
     ));
     let out_sw = Arc::new(AudioSwapchain::new(
@@ -203,7 +210,7 @@ fn start_backend(
         .build_input_stream(
             &in_config,
             move |input: &[f32], _| {
-                in_sw.submit_input_slice(input);
+                in_sw.submit_input(input);
                 let Some(input) = in_sw.acquire_ready_output_buf() else {
                     return;
                 };
@@ -212,16 +219,30 @@ fn start_backend(
                     return;
                 };
 
-                let input_adata = AudioDataRef::new(&input, in_config.channels as usize);
-                let mut stereo_adata = AudioDataMut::new(&mut buf, out_config.channels as usize);
+                let in_ch = in_config.channels as usize;
+                let input_adata = AudioDataRef::new(input.data(), in_ch);
+                let mut stereo_adata =
+                    AudioDataMut::new(buf.data_mut(), out_config.channels as usize);
 
                 let current_source_mode = CURRENT_SOURCE_MODE.load(atomic::Ordering::Relaxed);
-                match AudioSourceMode::from_u32(current_source_mode).unwrap() {
+                match AudioSourceMode::from_u32(current_source_mode)
+                    .unwrap_or(AudioSourceMode::Universal)
+                {
                     AudioSourceMode::Universal => {
-                        sv.process_ch8(&input_adata, &mut stereo_adata);
+                        if in_ch >= NUM_SURROUND_CHANNELS as usize {
+                            sv.process_ch8(&input_adata, &mut stereo_adata);
+                        } else if in_ch >= 2 {
+                            sv.process_ch2(&input_adata, &mut stereo_adata);
+                        } else {
+                            sv.process_mono(&input_adata, &mut stereo_adata);
+                        }
                     }
                     AudioSourceMode::Stereo => {
-                        sv.process_ch2(&input_adata, &mut stereo_adata);
+                        if in_ch >= 2 {
+                            sv.process_ch2(&input_adata, &mut stereo_adata);
+                        } else {
+                            sv.process_mono(&input_adata, &mut stereo_adata);
+                        }
                     }
                     AudioSourceMode::Mono => {
                         sv.process_mono(&input_adata, &mut stereo_adata);
@@ -229,7 +250,8 @@ fn start_backend(
                 }
 
                 let current_profile = CURRENT_EQ_PROFILE.load(atomic::Ordering::Relaxed);
-                match EqualizerProfile::from_u32(current_profile).unwrap() {
+                match EqualizerProfile::from_u32(current_profile).unwrap_or(EqualizerProfile::None)
+                {
                     EqualizerProfile::EarPods => eq_earpods.process(&mut stereo_adata),
                     EqualizerProfile::AirPods4 => eq_airpods4.process(&mut stereo_adata),
                     EqualizerProfile::K702 => eq_k702.process(&mut stereo_adata),
@@ -237,8 +259,7 @@ fn start_backend(
                     _ => {}
                 }
 
-                in_sw.release_output_buf(input);
-                aq.submit_input_buf(buf);
+                aq.submit_input(buf.data());
             },
             move |err| {
                 eprintln!("Input error: {}", err);
@@ -258,8 +279,7 @@ fn start_backend(
                     output.fill(cpal::Sample::EQUILIBRIUM);
                     return;
                 };
-                output.copy_from_slice(&buf);
-                aq.release_output_buf(buf);
+                output.copy_from_slice(buf.data());
             },
             move |err| {
                 eprintln!("Output error: {}", err);

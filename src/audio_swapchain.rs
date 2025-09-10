@@ -6,6 +6,29 @@ pub struct AudioSwapchain {
     output_bufs: cq::ConcurrentQueue<Vec<f32>>,
 }
 
+pub struct AudioBuffer<'a> {
+    data: Vec<f32>,
+    free_queue: &'a cq::ConcurrentQueue<Vec<f32>>,
+}
+
+impl AudioBuffer<'_> {
+    pub fn data(&self) -> &[f32] {
+        &self.data
+    }
+
+    pub fn data_mut(&mut self) -> &mut [f32] {
+        &mut self.data
+    }
+}
+
+impl Drop for AudioBuffer<'_> {
+    fn drop(&mut self) {
+        self.free_queue
+            .push(std::mem::take(&mut self.data))
+            .unwrap();
+    }
+}
+
 impl AudioSwapchain {
     pub fn new(in_buf_size: usize, out_buf_size: usize, n_packets: usize) -> Self {
         let rb_size = in_buf_size.max(out_buf_size) * n_packets;
@@ -26,19 +49,20 @@ impl AudioSwapchain {
         }
     }
 
-    pub fn acquire_ready_output_buf(&self) -> Option<Vec<f32>> {
-        let mut buf = self.output_bufs.pop().ok()?;
+    pub fn acquire_ready_output_buf(&self) -> Option<AudioBuffer<'_>> {
+        let mut buf = AudioBuffer {
+            data: self.output_bufs.pop().ok()?,
+            free_queue: &self.output_bufs,
+        };
 
-        if self.rb.len() < buf.len() {
-            self.output_bufs.push(buf).unwrap();
+        if self.rb.len() < buf.data.len() {
             return None;
         }
 
-        for bs in &mut buf {
+        for bs in &mut buf.data {
             if let Ok(s) = self.rb.pop() {
                 *bs = s;
             } else {
-                self.output_bufs.push(buf).unwrap();
                 return None;
             }
         }
@@ -46,22 +70,16 @@ impl AudioSwapchain {
         Some(buf)
     }
 
-    pub fn acquire_free_input_buf(&self) -> Option<Vec<f32>> {
-        self.input_bufs.pop().ok()
+    pub fn acquire_free_input_buf(&self) -> Option<AudioBuffer<'_>> {
+        self.input_bufs.pop().ok().map(|buf| AudioBuffer {
+            data: buf,
+            free_queue: &self.input_bufs,
+        })
     }
 
-    pub fn submit_input_slice(&self, data: &[f32]) {
+    pub fn submit_input(&self, data: &[f32]) {
         for s in data {
             let _ = self.rb.force_push(*s);
         }
-    }
-
-    pub fn submit_input_buf(&self, buf: Vec<f32>) {
-        self.submit_input_slice(&buf);
-        self.input_bufs.push(buf).unwrap();
-    }
-
-    pub fn release_output_buf(&self, buf: Vec<f32>) {
-        self.output_bufs.push(buf).unwrap();
     }
 }
