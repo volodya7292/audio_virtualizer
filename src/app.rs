@@ -65,7 +65,7 @@ impl App {
         tray_menu.append(&quit_menu_item).unwrap();
 
         let mut icon_reader = png::Decoder::new(Cursor::new(ICON)).read_info().unwrap();
-        let mut icon_buf = vec![0; icon_reader.output_buffer_size()];
+        let mut icon_buf = vec![0; icon_reader.output_buffer_size().unwrap()];
         icon_reader.next_frame(&mut icon_buf).unwrap();
         icon_reader.finish().unwrap();
 
