@@ -111,7 +111,7 @@ fn start_backend(
             .unwrap_or(false)
     });
     let Some(input_dev) = input_dev else {
-        println!("Input device '{}' not found", input_device_name);
+        eprintln!("Input device '{}' not found", input_device_name);
         reload_fn();
         return;
     };
@@ -122,7 +122,7 @@ fn start_backend(
             .unwrap_or(false)
     });
     let Some(output_dev) = output_dev else {
-        println!("Output device '{}' not found", output_device_name);
+        eprintln!("Output device '{}' not found", output_device_name);
         reload_fn();
         return;
     };
@@ -166,7 +166,7 @@ fn start_backend(
         .min_by_key(|buf_size| (*buf_size as isize - CH_BUF_SIZE as isize).abs());
 
     let Some((input_buf_size, in_selected_channels)) = input_selection else {
-        println!(
+        eprintln!(
             "Error: No supported input config found for device '{}'",
             input_device_name
         );
@@ -174,7 +174,7 @@ fn start_backend(
         return;
     };
     let Some(output_buf_size) = output_buf_size else {
-        println!(
+        eprintln!(
             "Error: No supported output config found for device '{}'",
             output_device_name
         );
@@ -279,6 +279,17 @@ fn start_backend(
                     output.fill(cpal::Sample::EQUILIBRIUM);
                     return;
                 };
+
+                if output.len() != buf.data().len() {
+                    eprintln!(
+                        "Output buffer size mismatch: expected {}, got {}",
+                        buf.data().len(),
+                        output.len()
+                    );
+                    reload_fn();
+                    return;
+                }
+
                 output.copy_from_slice(buf.data());
             },
             move |err| {
