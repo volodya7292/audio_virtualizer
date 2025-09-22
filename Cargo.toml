@@ -23,6 +23,12 @@ lazy_static = "1.5"
 strum = "0.27"
 strum_macros = "0.27"
 
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+
 [package.metadata.bundle]
 name = "Audio Virtualizer"
 identifier = "com.volodya7292.audio_virtualizer"
