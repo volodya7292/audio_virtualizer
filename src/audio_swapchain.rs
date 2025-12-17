@@ -1,8 +1,5 @@
 use concurrent_queue as cq;
-use ringbuf::{
-    rb,
-    traits::{Consumer, Observer, Producer},
-};
+use ringbuf::traits::{Consumer, Observer, Producer};
 
 pub struct AudioSwapchain {
     input_bufs: cq::ConcurrentQueue<Vec<f32>>,

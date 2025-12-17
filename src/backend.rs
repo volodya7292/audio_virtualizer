@@ -6,7 +6,7 @@ use crate::{
 };
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use num_traits::FromPrimitive;
-use ringbuf::traits::{Producer, Split};
+use ringbuf::traits::Split;
 use std::{
     sync::{
         Arc,
