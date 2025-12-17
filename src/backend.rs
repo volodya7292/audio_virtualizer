@@ -6,6 +6,7 @@ use crate::{
 };
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use num_traits::FromPrimitive;
+use ringbuf::traits::{Producer, Split};
 use std::{
     sync::{
         Arc,
@@ -199,19 +200,25 @@ fn start_backend(
         CH_BUF_SIZE * in_config.channels as usize,
         1,
     ));
+    let (mut in_rb_prod, mut in_rb_cons) =
+        ringbuf::HeapRb::<f32>::new(in_sw.desired_rb_size()).split();
+
     let out_sw = Arc::new(AudioSwapchain::new(
         CH_BUF_SIZE * NUM_OUT_CHANNELS as usize,
         output_buf_size * NUM_OUT_CHANNELS as usize,
         3,
     ));
+    let (mut out_rb_prod, mut out_rb_cons) =
+        ringbuf::HeapRb::<f32>::new(out_sw.desired_rb_size()).split();
 
     let aq = Arc::clone(&out_sw);
     let in_stream = input_dev
         .build_input_stream(
             &in_config,
             move |input: &[f32], _| {
-                in_sw.submit_input(input);
-                let Some(input) = in_sw.acquire_ready_output_buf() else {
+                AudioSwapchain::submit_input(input, &mut in_rb_prod);
+
+                let Some(input) = in_sw.acquire_ready_output_buf(&mut in_rb_cons) else {
                     return;
                 };
 
@@ -259,7 +266,7 @@ fn start_backend(
                     _ => {}
                 }
 
-                aq.submit_input(buf.data());
+                AudioSwapchain::submit_input(buf.data(), &mut out_rb_prod);
             },
             move |err| {
                 eprintln!("Input error: {}", err);
@@ -275,7 +282,7 @@ fn start_backend(
         .build_output_stream(
             &out_config,
             move |output: &mut [f32], _| {
-                let Some(buf) = aq.acquire_ready_output_buf() else {
+                let Some(buf) = aq.acquire_ready_output_buf(&mut out_rb_cons) else {
                     output.fill(cpal::Sample::EQUILIBRIUM);
                     return;
                 };

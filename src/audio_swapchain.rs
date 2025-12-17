@@ -1,9 +1,13 @@
 use concurrent_queue as cq;
+use ringbuf::{
+    rb,
+    traits::{Consumer, Observer, Producer},
+};
 
 pub struct AudioSwapchain {
-    rb: cq::ConcurrentQueue<f32>,
     input_bufs: cq::ConcurrentQueue<Vec<f32>>,
     output_bufs: cq::ConcurrentQueue<Vec<f32>>,
+    desired_rb_size: usize,
 }
 
 pub struct AudioBuffer<'a> {
@@ -33,7 +37,6 @@ impl AudioSwapchain {
     pub fn new(in_buf_size: usize, out_buf_size: usize, min_num_packets: usize) -> Self {
         let rb_size = in_buf_size.max(out_buf_size) * min_num_packets;
 
-        let rb = cq::ConcurrentQueue::bounded(rb_size);
         let input_bufs =
             cq::ConcurrentQueue::bounded(rb_size.next_multiple_of(in_buf_size) / in_buf_size);
         let output_bufs =
@@ -45,28 +48,32 @@ impl AudioSwapchain {
         }
 
         Self {
-            rb,
             input_bufs,
             output_bufs,
+            desired_rb_size: rb_size,
         }
     }
 
-    pub fn acquire_ready_output_buf(&self) -> Option<AudioBuffer<'_>> {
+    pub fn acquire_ready_output_buf(
+        &self,
+        cons: &mut ringbuf::HeapCons<f32>,
+    ) -> Option<AudioBuffer<'_>> {
         let mut buf = AudioBuffer {
             data: self.output_bufs.pop().ok()?,
             free_queue: &self.output_bufs,
         };
 
-        if self.rb.len() < buf.data.len() {
+        if cons.occupied_len() < buf.data.len() {
             return None;
         }
 
-        for bs in &mut buf.data {
-            if let Ok(s) = self.rb.pop() {
-                *bs = s;
-            } else {
-                return None;
-            }
+        let num_returned = cons.pop_slice(buf.data_mut());
+        if num_returned < buf.data.len() {
+            println!(
+                "Warning: expected to read {} samples, but only got {}",
+                buf.data.len(),
+                num_returned
+            );
         }
 
         Some(buf)
@@ -79,9 +86,18 @@ impl AudioSwapchain {
         })
     }
 
-    pub fn submit_input(&self, data: &[f32]) {
-        for s in data {
-            let _ = self.rb.force_push(*s);
+    pub fn submit_input(data: &[f32], prod: &mut ringbuf::HeapProd<f32>) {
+        let num_pushed = prod.push_slice(data);
+        if num_pushed < data.len() {
+            println!(
+                "Warning: expected to push {} samples, but only pushed {}",
+                data.len(),
+                num_pushed
+            );
         }
+    }
+
+    pub fn desired_rb_size(&self) -> usize {
+        self.desired_rb_size
     }
 }
