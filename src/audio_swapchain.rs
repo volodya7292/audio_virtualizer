@@ -41,6 +41,8 @@ impl AudioSwapchain {
 
         for _ in 0..input_bufs.capacity().unwrap() {
             input_bufs.push(vec![0.0; in_buf_size]).unwrap();
+        }
+        for _ in 0..output_bufs.capacity().unwrap() {
             output_bufs.push(vec![0.0; out_buf_size]).unwrap();
         }
 
