@@ -211,6 +211,37 @@ fn start_backend(
     let (mut out_rb_prod, mut out_rb_cons) =
         ringbuf::HeapRb::<f32>::new(out_sw.desired_rb_size()).split();
 
+    // first create the output stream to reduce glitches at startup
+    let aq = Arc::clone(&out_sw);
+    let out_stream = output_dev
+        .build_output_stream(
+            &out_config,
+            move |output: &mut [f32], _| {
+                let Some(buf) = aq.acquire_ready_output_buf(&mut out_rb_cons) else {
+                    output.fill(cpal::Sample::EQUILIBRIUM);
+                    return;
+                };
+
+                if output.len() != buf.data().len() {
+                    eprintln!(
+                        "Output buffer size mismatch: expected {}, got {}",
+                        buf.data().len(),
+                        output.len()
+                    );
+                    reload_fn();
+                    return;
+                }
+
+                output.copy_from_slice(buf.data());
+            },
+            move |err| {
+                eprintln!("Output error: {}", err);
+                reload_fn();
+            },
+            None,
+        )
+        .unwrap();
+
     let aq = Arc::clone(&out_sw);
     let in_stream = input_dev
         .build_input_stream(
@@ -276,39 +307,8 @@ fn start_backend(
         )
         .unwrap();
 
-    let aq = Arc::clone(&out_sw);
-
-    let out_stream = output_dev
-        .build_output_stream(
-            &out_config,
-            move |output: &mut [f32], _| {
-                let Some(buf) = aq.acquire_ready_output_buf(&mut out_rb_cons) else {
-                    output.fill(cpal::Sample::EQUILIBRIUM);
-                    return;
-                };
-
-                if output.len() != buf.data().len() {
-                    eprintln!(
-                        "Output buffer size mismatch: expected {}, got {}",
-                        buf.data().len(),
-                        output.len()
-                    );
-                    reload_fn();
-                    return;
-                }
-
-                output.copy_from_slice(buf.data());
-            },
-            move |err| {
-                eprintln!("Output error: {}", err);
-                reload_fn();
-            },
-            None,
-        )
-        .unwrap();
-
-    let _ = in_stream.play();
     let _ = out_stream.play();
+    let _ = in_stream.play();
 
     in_stream_var.replace(in_stream);
     out_stream_var.replace(out_stream);
