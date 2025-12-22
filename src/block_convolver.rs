@@ -1,67 +1,70 @@
 use num_complex::Complex;
 use num_traits::Zero;
-use rustfft::Fft;
+use realfft::{RealFftPlanner, RealToComplex, ComplexToReal};
 use std::{collections::VecDeque, iter, sync::Arc, vec};
 
 pub struct BlockConvolver {
     block_size: usize,
-    fft_solver: Arc<dyn Fft<f32>>,
-    fft_inv_solver: Arc<dyn Fft<f32>>,
+    fft_solver: Arc<dyn RealToComplex<f32>>,
+    fft_inv_solver: Arc<dyn ComplexToReal<f32>>,
     hrtf_blocks: Vec<Vec<Complex<f32>>>,
-    scratch: Vec<Complex<f32>>,
     signal_fft_sliding: VecDeque<Vec<Complex<f32>>>,
     signal_double_block: Vec<f32>,
     accum_tmp: Vec<Complex<f32>>,
+    scratch: Vec<Complex<f32>>,
+    output_scratch: Vec<f32>,
 }
 
 impl BlockConvolver {
     pub fn new(block_size: usize, hrir: &[f32]) -> Self {
         let window_size = block_size * 2;
-        let mut planner = rustfft::FftPlanner::<f32>::new();
+        let mut planner = RealFftPlanner::<f32>::new();
         let fft_solver = planner.plan_fft_forward(window_size);
         let fft_inv_solver = planner.plan_fft_inverse(window_size);
-        let mut scratch = vec![Complex::<f32>::default(); window_size];
+        let complex_len = window_size / 2 + 1;
 
         let hrtf_blocks: Vec<_> = hrir
             .chunks(block_size)
             .map(|chunk| {
-                let padded_len = chunk.len().next_power_of_two().max(window_size);
-
-                let mut chunk_padded: Vec<_> = chunk
+                let mut chunk_padded: Vec<f32> = chunk
                     .iter()
                     .cloned()
-                    .chain(iter::repeat(0_f32).take(padded_len - chunk.len()))
-                    .map(Complex::from)
+                    .chain(iter::repeat(0_f32).take(window_size - chunk.len()))
                     .collect();
 
-                fft_solver.process_with_scratch(&mut chunk_padded, &mut scratch);
+                let mut spectrum = fft_solver.make_output_vec();
+                fft_solver.process(&mut chunk_padded, &mut spectrum).unwrap();
 
                 let norm_factor = 1.0 / window_size as f32;
-                for v in &mut chunk_padded {
+                for v in &mut spectrum {
                     *v *= norm_factor;
                 }
 
-                chunk_padded
+                spectrum
             })
             .collect();
 
         let mut signal_fft_sliding = VecDeque::with_capacity(hrtf_blocks.len());
         let signal_double_block = vec![0.0; block_size * 2];
-        let accum_tmp = vec![Complex::<f32>::default(); window_size];
+        let accum_tmp = vec![Complex::<f32>::default(); complex_len];
 
         for _ in 0..hrtf_blocks.len() {
-            signal_fft_sliding.push_back(vec![Complex::<f32>::zero(); window_size]);
+            signal_fft_sliding.push_back(vec![Complex::<f32>::zero(); complex_len]);
         }
+
+        let scratch = fft_solver.make_scratch_vec();
+        let output_scratch = vec![0.0; window_size];
 
         Self {
             block_size,
             fft_solver,
             fft_inv_solver,
-            scratch,
             hrtf_blocks,
             signal_fft_sliding,
             signal_double_block,
             accum_tmp,
+            scratch,
+            output_scratch,
         }
     }
 
@@ -72,12 +75,9 @@ impl BlockConvolver {
             .copy_from_slice(signal_block);
 
         let mut fft_block = self.signal_fft_sliding.pop_front().unwrap();
-        for (out, in_val) in fft_block.iter_mut().zip(self.signal_double_block.iter()) {
-            *out = Complex::from(*in_val);
-        }
-
         self.fft_solver
-            .process_with_scratch(&mut fft_block, &mut self.scratch);
+            .process_with_scratch(&mut self.signal_double_block, &mut fft_block, &mut self.scratch)
+            .unwrap();
 
         self.signal_fft_sliding.push_back(fft_block);
         self.accum_tmp.fill(Complex::<f32>::zero());
@@ -95,12 +95,10 @@ impl BlockConvolver {
             });
 
         self.fft_inv_solver
-            .process_with_scratch(result_fft, &mut self.scratch);
+            .process_with_scratch(result_fft, &mut self.output_scratch, &mut self.scratch)
+            .unwrap();
 
-        let result_signal = &result_fft[self.block_size..];
-        for (out, res) in signal_block.iter_mut().zip(result_signal.iter()) {
-            *out = res.re;
-        }
+        signal_block.copy_from_slice(&self.output_scratch[self.block_size..]);
 
         self.signal_double_block.copy_within(self.block_size.., 0);
     }

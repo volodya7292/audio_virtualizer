@@ -6,10 +6,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-cpal = "0.16"
+cpal = "0.17"
 concurrent-queue = "2.5"
 ringbuf = "0.4"
-rustfft = "6.4"
+realfft = "3.5"
 hound = "3.5"
 num-complex = "0.4"
 num-traits = "0.2"

@@ -4,7 +4,10 @@ use crate::{
     config::{self, AudioSourceMode, EqualizerProfile},
     surround_virtualizer::{Equalizer, SurroundVirtualizer, SurroundVirtualizerConfig, wav_to_pcm},
 };
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::{
+    DeviceDescription,
+    traits::{DeviceTrait, HostTrait, StreamTrait},
+};
 use num_traits::FromPrimitive;
 use ringbuf::traits::Split;
 use std::{
@@ -44,14 +47,22 @@ static CURRENT_EQ_PROFILE: AtomicU32 = AtomicU32::new(0);
 pub fn get_input_devices() -> Vec<String> {
     let host = cpal::default_host();
     host.input_devices()
-        .map(|devices| devices.filter_map(|device| device.name().ok()).collect())
+        .map(|devices| {
+            devices
+                .filter_map(|device| device.description().map(|desc| desc.name().to_string()).ok())
+                .collect()
+        })
         .unwrap_or_default()
 }
 
 pub fn get_output_devices() -> Vec<String> {
     let host = cpal::default_host();
     host.output_devices()
-        .map(|devices| devices.filter_map(|device| device.name().ok()).collect())
+        .map(|devices| {
+            devices
+                .filter_map(|device| device.description().map(|desc| desc.name().to_string()).ok())
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -107,8 +118,8 @@ fn start_backend(
     };
 
     let input_dev = host.input_devices().unwrap().find(|dev| {
-        dev.name()
-            .map(|name| name == input_device_name)
+        dev.description()
+            .map(|desc| desc.name() == input_device_name)
             .unwrap_or(false)
     });
     let Some(input_dev) = input_dev else {
@@ -118,8 +129,8 @@ fn start_backend(
     };
 
     let output_dev = host.output_devices().unwrap().find(|dev| {
-        dev.name()
-            .map(|name| name == output_device_name)
+        dev.description()
+            .map(|desc| desc.name() == output_device_name)
             .unwrap_or(false)
     });
     let Some(output_dev) = output_dev else {
@@ -132,8 +143,8 @@ fn start_backend(
         .supported_input_configs()
         .unwrap()
         .filter(|conf| {
-            (conf.min_sample_rate().0 <= HRIR_SAMPLE_RATE)
-                && (conf.max_sample_rate().0 >= HRIR_SAMPLE_RATE)
+            (conf.min_sample_rate() <= HRIR_SAMPLE_RATE)
+                && (conf.max_sample_rate() >= HRIR_SAMPLE_RATE)
         })
         .map(|conf| {
             let buf_sz = match conf.buffer_size() {
@@ -155,8 +166,8 @@ fn start_backend(
         .unwrap()
         .filter(|conf| {
             conf.channels() >= NUM_OUT_CHANNELS as u16
-                && (conf.min_sample_rate().0 <= HRIR_SAMPLE_RATE)
-                && (conf.max_sample_rate().0 >= HRIR_SAMPLE_RATE)
+                && (conf.min_sample_rate() <= HRIR_SAMPLE_RATE)
+                && (conf.max_sample_rate() >= HRIR_SAMPLE_RATE)
         })
         .map(|conf| match conf.buffer_size() {
             cpal::SupportedBufferSize::Range { min, max } => {
@@ -185,13 +196,13 @@ fn start_backend(
 
     let in_config = cpal::StreamConfig {
         channels: in_selected_channels.min(NUM_SURROUND_CHANNELS as u16),
-        sample_rate: cpal::SampleRate(HRIR_SAMPLE_RATE),
+        sample_rate: HRIR_SAMPLE_RATE,
         buffer_size: cpal::BufferSize::Fixed(input_buf_size as u32),
     };
 
     let out_config = cpal::StreamConfig {
         channels: NUM_OUT_CHANNELS as u16,
-        sample_rate: cpal::SampleRate(HRIR_SAMPLE_RATE),
+        sample_rate: HRIR_SAMPLE_RATE,
         buffer_size: cpal::BufferSize::Fixed(output_buf_size as u32),
     };
 
