@@ -1,7 +1,8 @@
+use crate::audio_data::AFrame;
 use concurrent_queue as cq;
 use ringbuf::traits::{Consumer, Observer, Producer};
 
-pub struct AudioSwapchain {
+pub struct AudioSwapchain<const NUM_CHANNELS: usize> {
     input_bufs: cq::ConcurrentQueue<Vec<f32>>,
     output_bufs: cq::ConcurrentQueue<Vec<f32>>,
     desired_rb_size: usize,
@@ -30,7 +31,7 @@ impl Drop for AudioBuffer<'_> {
     }
 }
 
-impl AudioSwapchain {
+impl<const NUM_CHANNELS: usize> AudioSwapchain<NUM_CHANNELS> {
     pub fn new(in_buf_size: usize, out_buf_size: usize, min_num_packets: usize) -> Self {
         let rb_size = in_buf_size.max(out_buf_size) * min_num_packets;
 
@@ -55,24 +56,22 @@ impl AudioSwapchain {
 
     pub fn acquire_ready_output_buf(
         &self,
-        cons: &mut ringbuf::HeapCons<f32>,
+        cons: &mut ringbuf::HeapCons<AFrame<NUM_CHANNELS>>,
     ) -> Option<AudioBuffer<'_>> {
         let mut buf = AudioBuffer {
             data: self.output_bufs.pop().ok()?,
             free_queue: &self.output_bufs,
         };
 
-        if cons.occupied_len() < buf.data.len() {
+        let num_frames = buf.data.len() / NUM_CHANNELS;
+        if cons.occupied_len() < num_frames {
             return None;
         }
 
-        let num_returned = cons.pop_slice(buf.data_mut());
-        if num_returned < buf.data.len() {
-            println!(
-                "Warning: expected to read {} samples, but only got {}",
-                buf.data.len(),
-                num_returned
-            );
+        for (idx, frame) in cons.pop_iter().enumerate().take(num_frames) {
+            for ch in 0..NUM_CHANNELS {
+                buf.data[idx * NUM_CHANNELS + ch] = frame[ch];
+            }
         }
 
         Some(buf)
@@ -85,13 +84,21 @@ impl AudioSwapchain {
         })
     }
 
-    pub fn submit_input(data: &[f32], prod: &mut ringbuf::HeapProd<f32>) {
-        let num_pushed = prod.push_slice(data);
-        if num_pushed < data.len() {
-            println!(
-                "Warning: expected to push {} samples, but only pushed {}",
-                data.len(),
-                num_pushed
+    pub fn submit_input(data: &[f32], prod: &mut ringbuf::HeapProd<AFrame<NUM_CHANNELS>>) {
+        let num_frames = data.len() / NUM_CHANNELS;
+
+        let num_pushed_frames = prod.push_iter((0..num_frames).map(|idx| {
+            let mut frame = [0.0; NUM_CHANNELS];
+            for ch in 0..NUM_CHANNELS {
+                frame[ch] = data[idx * NUM_CHANNELS + ch];
+            }
+            frame
+        }));
+
+        if num_pushed_frames < num_frames {
+            eprintln!(
+                "Warning: dropped {} frames due to full buffer",
+                num_frames - num_pushed_frames
             );
         }
     }

@@ -1,5 +1,5 @@
 use crate::{
-    audio_data::{AudioDataMut, AudioDataRef},
+    audio_data::{AFrame, AudioDataMut, AudioDataRef},
     audio_swapchain::AudioSwapchain,
     config::{self, AudioSourceMode, EqualizerProfile},
     surround_virtualizer::{Equalizer, SurroundVirtualizer, SurroundVirtualizerConfig, wav_to_pcm},
@@ -184,7 +184,7 @@ fn start_backend(
     };
 
     let in_config = cpal::StreamConfig {
-        channels: in_selected_channels,
+        channels: in_selected_channels.min(NUM_SURROUND_CHANNELS as u16),
         sample_rate: cpal::SampleRate(HRIR_SAMPLE_RATE),
         buffer_size: cpal::BufferSize::Fixed(input_buf_size as u32),
     };
@@ -201,15 +201,20 @@ fn start_backend(
         1,
     ));
     let (mut in_rb_prod, mut in_rb_cons) =
-        ringbuf::HeapRb::<f32>::new(in_sw.desired_rb_size()).split();
+        ringbuf::HeapRb::<AFrame<{ NUM_SURROUND_CHANNELS as usize }>>::new(
+            in_sw.desired_rb_size() / in_config.channels as usize,
+        )
+        .split();
 
     let out_sw = Arc::new(AudioSwapchain::new(
         CH_BUF_SIZE * NUM_OUT_CHANNELS as usize,
         output_buf_size * NUM_OUT_CHANNELS as usize,
         3,
     ));
-    let (mut out_rb_prod, mut out_rb_cons) =
-        ringbuf::HeapRb::<f32>::new(out_sw.desired_rb_size()).split();
+    let (mut out_rb_prod, mut out_rb_cons) = ringbuf::HeapRb::<AFrame<NUM_OUT_CHANNELS>>::new(
+        out_sw.desired_rb_size() / NUM_OUT_CHANNELS,
+    )
+    .split();
 
     // first create the output stream to reduce glitches at startup
     let aq = Arc::clone(&out_sw);

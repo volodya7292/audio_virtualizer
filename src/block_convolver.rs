@@ -17,8 +17,9 @@ pub struct BlockConvolver {
 impl BlockConvolver {
     pub fn new(block_size: usize, hrir: &[f32]) -> Self {
         let window_size = block_size * 2;
-        let fft_solver = rustfft::FftPlanner::<f32>::new().plan_fft_forward(window_size);
-        let fft_inv_solver = rustfft::FftPlanner::<f32>::new().plan_fft_inverse(window_size);
+        let mut planner = rustfft::FftPlanner::<f32>::new();
+        let fft_solver = planner.plan_fft_forward(window_size);
+        let fft_inv_solver = planner.plan_fft_inverse(window_size);
         let mut scratch = vec![Complex::<f32>::default(); window_size];
 
         let hrtf_blocks: Vec<_> = hrir

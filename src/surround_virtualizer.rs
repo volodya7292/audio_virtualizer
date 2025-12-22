@@ -165,6 +165,7 @@ impl SurroundVirtualizer {
         }
     }
 }
+
 pub struct Equalizer {
     left: BlockConvolver,
     right: BlockConvolver,

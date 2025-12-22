@@ -56,3 +56,5 @@ impl<'a> AudioDataMut<'a> {
         }
     }
 }
+
+pub type AFrame<const CH: usize> = [f32; CH];
