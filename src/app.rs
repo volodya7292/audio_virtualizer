@@ -126,7 +126,7 @@ impl App {
         self.input_device_items.clear();
         self.output_device_items.clear();
 
-        let input_devices = backend::get_input_devices();
+        let input_devices = backend::get_input_device_names();
         let selected_input_def = config
             .input_device_name
             .as_deref()
@@ -139,7 +139,7 @@ impl App {
             self.input_device_items.insert(device_name, item);
         }
 
-        let output_devices = backend::get_output_devices();
+        let output_devices = backend::get_output_device_names();
         let selected_output_def = config
             .output_device_name
             .as_deref()

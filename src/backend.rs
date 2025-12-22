@@ -44,23 +44,33 @@ static RELOAD_NEEDED: AtomicBool = AtomicBool::new(false);
 static CURRENT_SOURCE_MODE: AtomicU32 = AtomicU32::new(0);
 static CURRENT_EQ_PROFILE: AtomicU32 = AtomicU32::new(0);
 
-pub fn get_input_devices() -> Vec<String> {
+pub fn get_input_device_names() -> Vec<String> {
     let host = cpal::default_host();
     host.input_devices()
         .map(|devices| {
             devices
-                .filter_map(|device| device.description().map(|desc| desc.name().to_string()).ok())
+                .filter_map(|device| {
+                    device
+                        .description()
+                        .map(|desc| desc.name().to_string())
+                        .ok()
+                })
                 .collect()
         })
         .unwrap_or_default()
 }
 
-pub fn get_output_devices() -> Vec<String> {
+pub fn get_output_device_names() -> Vec<String> {
     let host = cpal::default_host();
     host.output_devices()
         .map(|devices| {
             devices
-                .filter_map(|device| device.description().map(|desc| desc.name().to_string()).ok())
+                .filter_map(|device| {
+                    device
+                        .description()
+                        .map(|desc| desc.name().to_string())
+                        .ok()
+                })
                 .collect()
         })
         .unwrap_or_default()
