@@ -4,10 +4,8 @@ use crate::{
     config::{self, AudioSourceMode, EqualizerProfile},
     surround_virtualizer::{Equalizer, SurroundVirtualizer, SurroundVirtualizerConfig, wav_to_pcm},
 };
-use cpal::{
-    DeviceDescription,
-    traits::{DeviceTrait, HostTrait, StreamTrait},
-};
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use log::{info, warn};
 use num_traits::FromPrimitive;
 use ringbuf::traits::Split;
 use std::{
@@ -133,7 +131,7 @@ fn start_backend(
             .unwrap_or(false)
     });
     let Some(input_dev) = input_dev else {
-        eprintln!("Input device '{}' not found", input_device_name);
+        warn!("Input device '{}' not found", input_device_name);
         reload_fn();
         return;
     };
@@ -144,7 +142,7 @@ fn start_backend(
             .unwrap_or(false)
     });
     let Some(output_dev) = output_dev else {
-        eprintln!("Output device '{}' not found", output_device_name);
+        warn!("Output device '{}' not found", output_device_name);
         reload_fn();
         return;
     };
@@ -188,7 +186,7 @@ fn start_backend(
         .min_by_key(|buf_size| (*buf_size as isize - CH_BUF_SIZE as isize).abs());
 
     let Some((input_buf_size, in_selected_channels)) = input_selection else {
-        eprintln!(
+        warn!(
             "Error: No supported input config found for device '{}'",
             input_device_name
         );
@@ -196,7 +194,7 @@ fn start_backend(
         return;
     };
     let Some(output_buf_size) = output_buf_size else {
-        eprintln!(
+        warn!(
             "Error: No supported output config found for device '{}'",
             output_device_name
         );
@@ -249,7 +247,7 @@ fn start_backend(
                 };
 
                 if output.len() != buf.data().len() {
-                    eprintln!(
+                    warn!(
                         "Output buffer size mismatch: expected {}, got {}",
                         buf.data().len(),
                         output.len()
@@ -261,7 +259,7 @@ fn start_backend(
                 output.copy_from_slice(buf.data());
             },
             move |err| {
-                eprintln!("Output error: {}", err);
+                warn!("Output error: {}", err);
                 reload_fn();
             },
             None,
@@ -326,7 +324,7 @@ fn start_backend(
                 AudioSwapchain::submit_input(buf.data(), &mut out_rb_prod);
             },
             move |err| {
-                eprintln!("Input error: {}", err);
+                warn!("Input error: {}", err);
                 reload_fn();
             },
             None,
@@ -349,7 +347,7 @@ pub fn run() {
 
     loop {
         if RELOAD_NEEDED.swap(false, atomic::Ordering::Relaxed) {
-            println!("Starting backend...");
+            info!("Starting backend...");
             drop(in_stream.take());
             drop(out_stream.take());
             start_backend(&host, &mut in_stream, &mut out_stream);

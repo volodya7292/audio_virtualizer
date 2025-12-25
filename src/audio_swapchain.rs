@@ -1,6 +1,7 @@
 use crate::audio_data::AFrame;
 use concurrent_queue as cq;
 use ringbuf::traits::{Consumer, Observer, Producer};
+use log::warn;
 
 pub struct AudioSwapchain<const NUM_CHANNELS: usize> {
     input_bufs: cq::ConcurrentQueue<Vec<f32>>,
@@ -96,7 +97,7 @@ impl<const NUM_CHANNELS: usize> AudioSwapchain<NUM_CHANNELS> {
         }));
 
         if num_pushed_frames < num_frames {
-            eprintln!(
+            warn!(
                 "Warning: dropped {} frames due to full buffer",
                 num_frames - num_pushed_frames
             );

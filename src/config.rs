@@ -1,8 +1,9 @@
 use lazy_static::lazy_static;
+use log::warn;
 use num_derive::FromPrimitive;
-use strum_macros::{EnumIter, IntoStaticStr};
 use serde::{Deserialize, Serialize};
 use std::{fs::File, path::PathBuf, sync::Mutex};
+use strum_macros::{EnumIter, IntoStaticStr};
 
 lazy_static! {
     static ref APP_CONFIG: Mutex<AppConfig> = Mutex::new(AppConfig {
@@ -42,27 +43,38 @@ impl EqualizerProfile {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, FromPrimitive, Serialize, Deserialize, EnumIter, IntoStaticStr)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, FromPrimitive, Serialize, Deserialize, EnumIter, IntoStaticStr,
+)]
 pub enum AudioSourceMode {
     Universal,
     Stereo,
     Mono,
 }
 
+fn get_project_dirs() -> directories::ProjectDirs {
+    directories::ProjectDirs::from("", "", "audio_virtualizer").unwrap()
+}
+
 fn get_config_path() -> PathBuf {
-    let path = directories::ProjectDirs::from("", "", "audio_virtualizer").unwrap();
+    let path = get_project_dirs();
     path.config_dir().join("config.json")
+}
+
+pub fn get_cache_path() -> PathBuf {
+    let path = get_project_dirs();
+    path.cache_dir().to_path_buf()
 }
 
 pub fn load() {
     let config_path = get_config_path();
 
     let Ok(config_file) = File::open(config_path) else {
-        eprintln!("Failed to open config file, using default configuration.");
+        warn!("Failed to open config file, using default configuration.");
         return;
     };
     let Ok(config) = serde_json::from_reader::<_, AppConfig>(config_file) else {
-        eprintln!("Failed to parse config file, using default configuration.");
+        warn!("Failed to parse config file, using default configuration.");
         return;
     };
 
