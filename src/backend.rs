@@ -35,6 +35,7 @@ const NUM_SURROUND_CHANNELS: u32 = 8;
 const CH_BUF_SIZE: usize = 2048;
 const NUM_OUT_CHANNELS: usize = 2;
 const HRIR_SAMPLE_RATE: u32 = 48000;
+const AUDIO_BACKEND_TIMEOUT_MS: u64 = 1000;
 pub const DEFAULT_INPUT_DEVICE_NAME: &str = "BlackHole 16ch";
 pub const DEFAULT_OUTPUT_DEVICE_NAME: &str = "External Headphones";
 
@@ -262,7 +263,7 @@ fn start_backend(
                 warn!("Output error: {}", err);
                 reload_fn();
             },
-            None,
+            Some(Duration::from_millis(AUDIO_BACKEND_TIMEOUT_MS)),
         )
         .unwrap();
 
@@ -271,7 +272,13 @@ fn start_backend(
         .build_input_stream(
             &in_config,
             move |input: &[f32], _| {
-                AudioSwapchain::submit_input(input, &mut in_rb_prod);
+                let num_frames_pushed = AudioSwapchain::submit_input(input, &mut in_rb_prod);
+                if num_frames_pushed < input.len() / in_config.channels as usize {
+                    warn!(
+                        "Warning: dropped {} frames due to full input ringbuffer",
+                        (input.len() / in_config.channels as usize) - num_frames_pushed
+                    );
+                }
 
                 let Some(input) = in_sw.acquire_ready_output_buf(&mut in_rb_cons) else {
                     return;
@@ -321,13 +328,19 @@ fn start_backend(
                     _ => {}
                 }
 
-                AudioSwapchain::submit_input(buf.data(), &mut out_rb_prod);
+                let num_frames_pushed = AudioSwapchain::submit_input(buf.data(), &mut out_rb_prod);
+                if num_frames_pushed < buf.data().len() / NUM_OUT_CHANNELS {
+                    warn!(
+                        "Warning: dropped {} frames due to full output ringbuffer",
+                        (buf.data().len() / NUM_OUT_CHANNELS) - num_frames_pushed
+                    );
+                }
             },
             move |err| {
                 warn!("Input error: {}", err);
                 reload_fn();
             },
-            None,
+            Some(Duration::from_millis(AUDIO_BACKEND_TIMEOUT_MS)),
         )
         .unwrap();
 

@@ -1,7 +1,6 @@
 use crate::audio_data::AFrame;
 use concurrent_queue as cq;
 use ringbuf::traits::{Consumer, Observer, Producer};
-use log::warn;
 
 pub struct AudioSwapchain<const NUM_CHANNELS: usize> {
     input_bufs: cq::ConcurrentQueue<Vec<f32>>,
@@ -85,7 +84,9 @@ impl<const NUM_CHANNELS: usize> AudioSwapchain<NUM_CHANNELS> {
         })
     }
 
-    pub fn submit_input(data: &[f32], prod: &mut ringbuf::HeapProd<AFrame<NUM_CHANNELS>>) {
+    /// Submits input audio data into the ring buffer producer.
+    /// Returns the number of frames successfully pushed.
+    pub fn submit_input(data: &[f32], prod: &mut ringbuf::HeapProd<AFrame<NUM_CHANNELS>>) -> usize {
         let num_frames = data.len() / NUM_CHANNELS;
 
         let num_pushed_frames = prod.push_iter((0..num_frames).map(|idx| {
@@ -96,12 +97,7 @@ impl<const NUM_CHANNELS: usize> AudioSwapchain<NUM_CHANNELS> {
             frame
         }));
 
-        if num_pushed_frames < num_frames {
-            warn!(
-                "Warning: dropped {} frames due to full buffer",
-                num_frames - num_pushed_frames
-            );
-        }
+        num_pushed_frames
     }
 
     pub fn desired_rb_size(&self) -> usize {
