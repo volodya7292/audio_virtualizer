@@ -5,6 +5,7 @@ mod backend;
 mod block_convolver;
 mod config;
 mod surround_virtualizer;
+mod macros;
 
 use crate::app::{App, AppUserEvent};
 use crate::config::get_cache_path;

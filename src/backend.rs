@@ -2,6 +2,7 @@ use crate::{
     audio_data::{AFrame, AudioDataMut, AudioDataRef},
     audio_swapchain::AudioSwapchain,
     config::{self, AudioSourceMode, EqualizerProfile},
+    execute_sampled,
     surround_virtualizer::{Equalizer, SurroundVirtualizer, SurroundVirtualizerConfig, wav_to_pcm},
 };
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -248,11 +249,13 @@ fn start_backend(
                 };
 
                 if output.len() != buf.data().len() {
-                    warn!(
-                        "Output buffer size mismatch: expected {}, got {}",
-                        buf.data().len(),
-                        output.len()
-                    );
+                    execute_sampled!(Duration::from_secs(5), {
+                        warn!(
+                            "Output buffer size mismatch: expected {}, got {}",
+                            buf.data().len(),
+                            output.len()
+                        );
+                    });
                     reload_fn();
                     return;
                 }
@@ -274,10 +277,12 @@ fn start_backend(
             move |input: &[f32], _| {
                 let num_frames_pushed = AudioSwapchain::submit_input(input, &mut in_rb_prod);
                 if num_frames_pushed < input.len() / in_config.channels as usize {
-                    warn!(
-                        "Warning: dropped {} frames due to full input ringbuffer",
-                        (input.len() / in_config.channels as usize) - num_frames_pushed
-                    );
+                    execute_sampled!(Duration::from_secs(5), {
+                        warn!(
+                            "Warning: dropped {} frames due to full input ringbuffer",
+                            (input.len() / in_config.channels as usize) - num_frames_pushed
+                        );
+                    });
                 }
 
                 let Some(input) = in_sw.acquire_ready_output_buf(&mut in_rb_cons) else {
@@ -330,10 +335,12 @@ fn start_backend(
 
                 let num_frames_pushed = AudioSwapchain::submit_input(buf.data(), &mut out_rb_prod);
                 if num_frames_pushed < buf.data().len() / NUM_OUT_CHANNELS {
-                    warn!(
-                        "Warning: dropped {} frames due to full output ringbuffer",
-                        (buf.data().len() / NUM_OUT_CHANNELS) - num_frames_pushed
-                    );
+                    execute_sampled!(Duration::from_secs(5), {
+                        warn!(
+                            "Warning: dropped {} frames due to full output ringbuffer",
+                            (buf.data().len() / NUM_OUT_CHANNELS) - num_frames_pushed
+                        );
+                    });
                 }
             },
             move |err| {
