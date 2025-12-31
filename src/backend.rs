@@ -1,7 +1,7 @@
 use crate::{
     audio_data::{AFrame, AudioDataMut, AudioDataRef},
     audio_swapchain::AudioSwapchain,
-    config::{self, AudioSourceMode, EqualizerProfile},
+    config::{self, AppConfig, AudioSourceMode, EqualizerProfile},
     execute_sampled,
     surround_virtualizer::{Equalizer, SurroundVirtualizer, SurroundVirtualizerConfig, wav_to_pcm},
 };
@@ -88,13 +88,15 @@ pub fn set_source_mode(source_mode: AudioSourceMode) {
     CURRENT_SOURCE_MODE.store(source_mode as u32, atomic::Ordering::Relaxed);
 }
 
-fn start_backend(
-    host: &cpal::Host,
-    in_stream_var: &mut Option<cpal::Stream>,
-    out_stream_var: &mut Option<cpal::Stream>,
-) {
-    let config = config::get_snapshot();
+fn initiate_reload() {
+    thread::sleep(std::time::Duration::from_secs(1));
+    RELOAD_NEEDED.store(true, atomic::Ordering::Relaxed);
+}
 
+fn get_devices(
+    host: &cpal::Host,
+    config: &AppConfig,
+) -> Result<(cpal::Device, cpal::Device), String> {
     let input_device_name = config
         .input_device_name
         .as_deref()
@@ -103,6 +105,42 @@ fn start_backend(
         .output_device_name
         .as_deref()
         .unwrap_or(DEFAULT_OUTPUT_DEVICE_NAME);
+
+    let input_dev = host.input_devices().unwrap().find(|dev| {
+        dev.description()
+            .map(|desc| desc.name() == input_device_name)
+            .unwrap_or(false)
+    });
+    let Some(input_dev) = input_dev else {
+        return Err(format!("Input device '{}' not found", input_device_name));
+    };
+
+    let output_dev = host.output_devices().unwrap().find(|dev| {
+        dev.description()
+            .map(|desc| desc.name() == output_device_name)
+            .unwrap_or(false)
+    });
+    let Some(output_dev) = output_dev else {
+        return Err(format!("Output device '{}' not found", output_device_name));
+    };
+
+    Ok((input_dev, output_dev))
+}
+
+fn start_backend(
+    input_dev: &cpal::Device,
+    output_dev: &cpal::Device,
+    in_stream_var: &mut Option<cpal::Stream>,
+    out_stream_var: &mut Option<cpal::Stream>,
+) {
+    let in_dev_name = input_dev
+        .description()
+        .map(|desc| desc.name().to_string())
+        .unwrap_or_default();
+    let out_dev_name = output_dev
+        .description()
+        .map(|desc| desc.name().to_string())
+        .unwrap_or_default();
 
     let virt_config = SurroundVirtualizerConfig {
         fc_wav: FC_WAV,
@@ -121,33 +159,6 @@ fn start_backend(
     let mut eq_airpods4 = Equalizer::new(CH_BUF_SIZE, wav_to_pcm(AIRPODS4_EQ));
     let mut eq_k702 = Equalizer::new(CH_BUF_SIZE, wav_to_pcm(K702_EQ));
     let mut eq_dt770pro = Equalizer::new(CH_BUF_SIZE, wav_to_pcm(DT770PRO_EQ));
-
-    let reload_fn = move || {
-        thread::sleep(std::time::Duration::from_secs(1));
-        RELOAD_NEEDED.store(true, atomic::Ordering::Relaxed);
-    };
-
-    let input_dev = host.input_devices().unwrap().find(|dev| {
-        dev.description()
-            .map(|desc| desc.name() == input_device_name)
-            .unwrap_or(false)
-    });
-    let Some(input_dev) = input_dev else {
-        warn!("Input device '{}' not found", input_device_name);
-        reload_fn();
-        return;
-    };
-
-    let output_dev = host.output_devices().unwrap().find(|dev| {
-        dev.description()
-            .map(|desc| desc.name() == output_device_name)
-            .unwrap_or(false)
-    });
-    let Some(output_dev) = output_dev else {
-        warn!("Output device '{}' not found", output_device_name);
-        reload_fn();
-        return;
-    };
 
     let input_selection = input_dev
         .supported_input_configs()
@@ -188,19 +199,13 @@ fn start_backend(
         .min_by_key(|buf_size| (*buf_size as isize - CH_BUF_SIZE as isize).abs());
 
     let Some((input_buf_size, in_selected_channels)) = input_selection else {
-        warn!(
-            "Error: No supported input config found for device '{}'",
-            input_device_name
-        );
-        reload_fn();
+        warn!("Error: No supported input config found for device '{in_dev_name}'",);
+        initiate_reload();
         return;
     };
     let Some(output_buf_size) = output_buf_size else {
-        warn!(
-            "Error: No supported output config found for device '{}'",
-            output_device_name
-        );
-        reload_fn();
+        warn!("Error: No supported output config found for device '{out_dev_name}'",);
+        initiate_reload();
         return;
     };
 
@@ -256,7 +261,7 @@ fn start_backend(
                             output.len()
                         );
                     });
-                    reload_fn();
+                    initiate_reload();
                     return;
                 }
 
@@ -264,7 +269,7 @@ fn start_backend(
             },
             move |err| {
                 warn!("Output error: {}", err);
-                reload_fn();
+                initiate_reload();
             },
             Some(Duration::from_millis(AUDIO_BACKEND_TIMEOUT_MS)),
         )
@@ -345,7 +350,7 @@ fn start_backend(
             },
             move |err| {
                 warn!("Input error: {}", err);
-                reload_fn();
+                initiate_reload();
             },
             Some(Duration::from_millis(AUDIO_BACKEND_TIMEOUT_MS)),
         )
@@ -366,11 +371,23 @@ pub fn run() {
     let mut out_stream = None;
 
     loop {
+        let conf = config::get_snapshot();
+        let devices = get_devices(&host, &conf);
+    
+        if let Err(str) = devices {
+            execute_sampled!(Duration::from_secs(5), {
+                warn!("{}", str);
+            });
+            initiate_reload();
+            continue;
+        }
+        let (input_dev, output_dev) = devices.unwrap();
+
         if RELOAD_NEEDED.swap(false, atomic::Ordering::Relaxed) {
             info!("Starting backend...");
             drop(in_stream.take());
             drop(out_stream.take());
-            start_backend(&host, &mut in_stream, &mut out_stream);
+            start_backend(&input_dev, &output_dev, &mut in_stream, &mut out_stream);
         }
 
         thread::sleep(Duration::from_millis(100));
