@@ -373,7 +373,13 @@ pub fn run() {
     loop {
         let conf = config::get_snapshot();
         let devices = get_devices(&host, &conf);
-    
+        let do_reload = RELOAD_NEEDED.swap(false, atomic::Ordering::Relaxed);
+
+        if do_reload {
+            drop(in_stream.take());
+            drop(out_stream.take());
+        }
+
         if let Err(str) = devices {
             execute_sampled!(Duration::from_secs(5), {
                 warn!("{}", str);
@@ -383,10 +389,8 @@ pub fn run() {
         }
         let (input_dev, output_dev) = devices.unwrap();
 
-        if RELOAD_NEEDED.swap(false, atomic::Ordering::Relaxed) {
+        if do_reload {
             info!("Starting backend...");
-            drop(in_stream.take());
-            drop(out_stream.take());
             start_backend(&input_dev, &output_dev, &mut in_stream, &mut out_stream);
         }
 
