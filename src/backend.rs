@@ -127,12 +127,7 @@ fn get_devices(
     Ok((input_dev, output_dev))
 }
 
-fn start_backend(
-    input_dev: &cpal::Device,
-    output_dev: &cpal::Device,
-    in_stream_var: &mut Option<cpal::Stream>,
-    out_stream_var: &mut Option<cpal::Stream>,
-) {
+fn start_backend(input_dev: &cpal::Device, output_dev: &cpal::Device) -> Option<(cpal::Stream, cpal::Stream)> {
     let in_dev_name = input_dev
         .description()
         .map(|desc| desc.name().to_string())
@@ -201,12 +196,12 @@ fn start_backend(
     let Some((input_buf_size, in_selected_channels)) = input_selection else {
         warn!("Error: No supported input config found for device '{in_dev_name}'",);
         initiate_reload();
-        return;
+        return None;
     };
     let Some(output_buf_size) = output_buf_size else {
         warn!("Error: No supported output config found for device '{out_dev_name}'",);
         initiate_reload();
-        return;
+        return None;
     };
 
     let in_config = cpal::StreamConfig {
@@ -359,8 +354,7 @@ fn start_backend(
     let _ = out_stream.play();
     let _ = in_stream.play();
 
-    in_stream_var.replace(in_stream);
-    out_stream_var.replace(out_stream);
+    Some((in_stream, out_stream))
 }
 
 pub fn run() {
@@ -391,7 +385,10 @@ pub fn run() {
 
         if do_reload {
             info!("Starting backend...");
-            start_backend(&input_dev, &output_dev, &mut in_stream, &mut out_stream);
+            if let Some((in_str, out_str)) = start_backend(&input_dev, &output_dev) {
+                in_stream = Some(in_str);
+                out_stream = Some(out_str);
+            }
         }
 
         thread::sleep(Duration::from_millis(100));
