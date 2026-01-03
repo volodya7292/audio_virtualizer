@@ -2,8 +2,8 @@ use crate::{
     audio_data::{AFrame, AudioDataMut, AudioDataRef},
     audio_swapchain::AudioSwapchain,
     config::{self, AppConfig, AudioSourceMode, EqualizerProfile},
-    execute_sampled,
-    surround_virtualizer::{Equalizer, SurroundVirtualizer, SurroundVirtualizerConfig, wav_to_pcm},
+    coremotion, execute_sampled,
+    surround_virtualizer::{Equalizer, SpeakerPosition, SurroundVirtualizer, SurroundVirtualizerConfig, wav_to_pcm},
 };
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use log::{info, warn};
@@ -127,7 +127,10 @@ fn get_devices(
     Ok((input_dev, output_dev))
 }
 
-fn start_backend(input_dev: &cpal::Device, output_dev: &cpal::Device) -> Option<(cpal::Stream, cpal::Stream)> {
+fn start_backend(
+    input_dev: &cpal::Device,
+    output_dev: &cpal::Device,
+) -> Option<(cpal::Stream, cpal::Stream)> {
     let in_dev_name = input_dev
         .description()
         .map(|desc| desc.name().to_string())
@@ -138,17 +141,19 @@ fn start_backend(input_dev: &cpal::Device, output_dev: &cpal::Device) -> Option<
         .unwrap_or_default();
 
     let virt_config = SurroundVirtualizerConfig {
-        fc_wav: FC_WAV,
-        bl_wav: BL_WAV,
-        br_wav: BR_WAV,
-        fl_wav: FL_WAV,
-        fr_wav: FR_WAV,
-        sl_wav: SL_WAV,
-        sr_wav: SR_WAV,
+        speaker_positions: vec![
+            SpeakerPosition { angle_degrees: 50.0, hrir_wav: FL_WAV },
+            SpeakerPosition { angle_degrees: -50.0, hrir_wav: FR_WAV },
+            SpeakerPosition { angle_degrees: 0.0, hrir_wav: FC_WAV },
+            SpeakerPosition { angle_degrees: 90.0, hrir_wav: SL_WAV },
+            SpeakerPosition { angle_degrees: -90.0, hrir_wav: SR_WAV },
+            SpeakerPosition { angle_degrees: 140.0, hrir_wav: BL_WAV },
+            SpeakerPosition { angle_degrees: -140.0, hrir_wav: BR_WAV },
+        ],
         lfe_wav: LFE_WAV,
         block_size: CH_BUF_SIZE,
     };
-    let mut sv = SurroundVirtualizer::new(&virt_config);
+    let mut sv = SurroundVirtualizer::new(virt_config);
 
     let mut eq_earpods = Equalizer::new(CH_BUF_SIZE, wav_to_pcm(EARPODS_EQ));
     let mut eq_airpods4 = Equalizer::new(CH_BUF_SIZE, wav_to_pcm(AIRPODS4_EQ));
@@ -298,28 +303,31 @@ fn start_backend(input_dev: &cpal::Device, output_dev: &cpal::Device) -> Option<
                 let mut stereo_adata =
                     AudioDataMut::new(buf.data_mut(), out_config.channels as usize);
 
+                let head_yaw = coremotion::get_head_yaw();
+                let head_pitch = coremotion::get_head_pitch();
+
                 let current_source_mode = CURRENT_SOURCE_MODE.load(atomic::Ordering::Relaxed);
                 match AudioSourceMode::from_u32(current_source_mode)
                     .unwrap_or(AudioSourceMode::Universal)
                 {
                     AudioSourceMode::Universal => {
                         if in_ch >= NUM_SURROUND_CHANNELS as usize {
-                            sv.process_ch8(&input_adata, &mut stereo_adata);
+                            sv.process_ch8(&input_adata, &mut stereo_adata, head_yaw, head_pitch);
                         } else if in_ch >= 2 {
-                            sv.process_ch2(&input_adata, &mut stereo_adata);
+                            sv.process_ch2(&input_adata, &mut stereo_adata, head_yaw, head_pitch);
                         } else {
-                            sv.process_mono(&input_adata, &mut stereo_adata);
+                            sv.process_mono(&input_adata, &mut stereo_adata, head_yaw, head_pitch);
                         }
                     }
                     AudioSourceMode::Stereo => {
                         if in_ch >= 2 {
-                            sv.process_ch2(&input_adata, &mut stereo_adata);
+                            sv.process_ch2(&input_adata, &mut stereo_adata, head_yaw, head_pitch);
                         } else {
-                            sv.process_mono(&input_adata, &mut stereo_adata);
+                            sv.process_mono(&input_adata, &mut stereo_adata, head_yaw, head_pitch);
                         }
                     }
                     AudioSourceMode::Mono => {
-                        sv.process_mono(&input_adata, &mut stereo_adata);
+                        sv.process_mono(&input_adata, &mut stereo_adata, head_yaw, head_pitch);
                     }
                 }
 
@@ -363,6 +371,10 @@ pub fn run() {
     let host = cpal::default_host();
     let mut in_stream = None;
     let mut out_stream = None;
+
+    thread::spawn(|| unsafe {
+        coremotion::start_head_tracking();
+    });
 
     loop {
         let conf = config::get_snapshot();

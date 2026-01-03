@@ -7,6 +7,7 @@ edition = "2024"
 
 [dependencies]
 cpal = "0.17"
+objc2-core-motion = "0.3"
 concurrent-queue = "2.5"
 ringbuf = "0.4"
 realfft = "3.5"
@@ -26,6 +27,9 @@ strum_macros = "0.27"
 log = "0.4"
 flexi_logger = "0.31"
 log-panics = "2.1"
+objc2-foundation = "0.3"
+block2 = "0.6"
+objc2 = "0.6"
 
 [profile.dev]
 opt-level = 2

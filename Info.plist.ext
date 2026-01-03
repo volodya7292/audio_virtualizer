@@ -1,4 +1,6 @@
 <key>NSMicrophoneUsageDescription</key>
 <string>This app requires microphone access for real-time audio source processing.</string>
+<key>NSMotionUsageDescription</key>
+<string>This app requires motion access for immersive audio experience.</string>
 <key>LSUIElement</key>
 <string>YES</string>

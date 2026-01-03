@@ -155,6 +155,7 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 name = "audio_virtualizer"
 version = "0.1.0"
 dependencies = [
+ "block2 0.6.2",
  "concurrent-queue",
  "cpal",
  "directories",
@@ -166,6 +167,9 @@ dependencies = [
  "num-complex",
  "num-derive",
  "num-traits",
+ "objc2 0.6.3",
+ "objc2-core-motion",
+ "objc2-foundation 0.3.2",
  "png 0.18.0",
  "realfft",
  "ringbuf",
@@ -1415,7 +1419,7 @@ dependencies = [
  "bitflags 2.10.0",
  "block2 0.5.1",
  "objc2 0.5.2",
- "objc2-core-location",
+ "objc2-core-location 0.2.2",
  "objc2-foundation 0.2.2",
 ]
 
@@ -1513,6 +1517,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "objc2-core-location"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ca347214e24bc973fc025fd0d36ebb179ff30536ed1f80252706db19ee452009"
+dependencies = [
+ "objc2 0.6.3",
+ "objc2-foundation 0.3.2",
+]
+
+[[package]]
+name = "objc2-core-motion"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dcf94da2dcaad7e727ad6a1ea2312293c776f0df8cbc87fde6654d100a24386a"
+dependencies = [
+ "bitflags 2.10.0",
+ "block2 0.6.2",
+ "objc2 0.6.3",
+ "objc2-core-location 0.3.2",
+ "objc2-foundation 0.3.2",
+]
+
+[[package]]
 name = "objc2-encode"
 version = "4.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1603,7 +1630,7 @@ dependencies = [
  "objc2-cloud-kit",
  "objc2-core-data",
  "objc2-core-image",
- "objc2-core-location",
+ "objc2-core-location 0.2.2",
  "objc2-foundation 0.2.2",
  "objc2-link-presentation",
  "objc2-quartz-core",
@@ -1632,7 +1659,7 @@ dependencies = [
  "bitflags 2.10.0",
  "block2 0.5.1",
  "objc2 0.5.2",
- "objc2-core-location",
+ "objc2-core-location 0.2.2",
  "objc2-foundation 0.2.2",
 ]
 
