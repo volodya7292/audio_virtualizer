@@ -89,7 +89,6 @@ pub fn set_source_mode(source_mode: AudioSourceMode) {
 }
 
 fn initiate_reload() {
-    thread::sleep(std::time::Duration::from_secs(1));
     RELOAD_NEEDED.store(true, atomic::Ordering::Relaxed);
 }
 
@@ -365,32 +364,30 @@ pub fn run() {
     let mut out_stream = None;
 
     loop {
-        let conf = config::get_snapshot();
-        let devices = get_devices(&host, &conf);
         let do_reload = RELOAD_NEEDED.swap(false, atomic::Ordering::Relaxed);
 
         if do_reload {
             drop(in_stream.take());
             drop(out_stream.take());
-        }
 
-        if let Err(str) = devices {
-            execute_sampled!(Duration::from_secs(5), {
-                warn!("{}", str);
-            });
-            initiate_reload();
-            continue;
-        }
-        let (input_dev, output_dev) = devices.unwrap();
-
-        if do_reload {
-            info!("Starting backend...");
-            if let Some((in_str, out_str)) = start_backend(&input_dev, &output_dev) {
-                in_stream = Some(in_str);
-                out_stream = Some(out_str);
+            let conf = config::get_snapshot();
+            match get_devices(&host, &conf) {
+                Ok((input_dev, output_dev)) => {
+                    info!("Starting backend...");
+                    if let Some((in_str, out_str)) = start_backend(&input_dev, &output_dev) {
+                        in_stream = Some(in_str);
+                        out_stream = Some(out_str);
+                    }
+                }
+                Err(str) => {
+                    execute_sampled!(Duration::from_secs(5), {
+                        warn!("{}", str);
+                    });
+                    initiate_reload();
+                }
             }
         }
 
-        thread::sleep(Duration::from_millis(100));
+        thread::sleep(Duration::from_millis(200));
     }
 }
