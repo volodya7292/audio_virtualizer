@@ -270,6 +270,7 @@ fn start_backend(input_dev: &cpal::Device, output_dev: &cpal::Device) -> Option<
         .unwrap();
 
     let aq = Arc::clone(&out_sw);
+    let mut consecutive_output_drops: u32 = 0;
     let in_stream = input_dev
         .build_input_stream(
             &in_config,
@@ -334,12 +335,21 @@ fn start_backend(input_dev: &cpal::Device, output_dev: &cpal::Device) -> Option<
 
                 let num_frames_pushed = AudioSwapchain::submit_input(buf.data(), &mut out_rb_prod);
                 if num_frames_pushed < buf.data().len() / NUM_OUT_CHANNELS {
+                    consecutive_output_drops += 1;
                     execute_sampled!(Duration::from_secs(5), {
                         warn!(
-                            "Warning: dropped {} frames due to full output ringbuffer",
-                            (buf.data().len() / NUM_OUT_CHANNELS) - num_frames_pushed
+                            "Warning: dropped {} frames due to full output ringbuffer ({} consecutive)",
+                            (buf.data().len() / NUM_OUT_CHANNELS) - num_frames_pushed,
+                            consecutive_output_drops
                         );
                     });
+                    if consecutive_output_drops >= 10 {
+                        warn!("Output ringbuffer consistently full, likely no audio output available, reloading backend");
+                        consecutive_output_drops = 0;
+                        initiate_reload();
+                    }
+                } else {
+                    consecutive_output_drops = 0;
                 }
             },
             move |err| {
