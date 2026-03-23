@@ -1,6 +1,6 @@
 use num_complex::Complex;
 use num_traits::Zero;
-use realfft::{RealFftPlanner, RealToComplex, ComplexToReal};
+use realfft::{ComplexToReal, RealFftPlanner, RealToComplex};
 use std::{collections::VecDeque, iter, sync::Arc, vec};
 
 pub struct BlockConvolver {
@@ -33,7 +33,9 @@ impl BlockConvolver {
                     .collect();
 
                 let mut spectrum = fft_solver.make_output_vec();
-                fft_solver.process(&mut chunk_padded, &mut spectrum).unwrap();
+                fft_solver
+                    .process(&mut chunk_padded, &mut spectrum)
+                    .unwrap();
 
                 let norm_factor = 1.0 / window_size as f32;
                 for v in &mut spectrum {
@@ -76,7 +78,11 @@ impl BlockConvolver {
 
         let mut fft_block = self.signal_fft_sliding.pop_front().unwrap();
         self.fft_solver
-            .process_with_scratch(&mut self.signal_double_block, &mut fft_block, &mut self.scratch)
+            .process_with_scratch(
+                &mut self.signal_double_block,
+                &mut fft_block,
+                &mut self.scratch,
+            )
             .unwrap();
 
         self.signal_fft_sliding.push_back(fft_block);
