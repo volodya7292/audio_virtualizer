@@ -166,6 +166,7 @@ dependencies = [
  "num-complex",
  "num-derive",
  "num-traits",
+ "objc2-core-audio",
  "png 0.18.1",
  "realfft",
  "ringbuf",

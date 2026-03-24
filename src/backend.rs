@@ -2,21 +2,18 @@ use crate::{
     audio_data::{AFrame, AudioDataMut, AudioDataRef},
     audio_swapchain::AudioSwapchain,
     config::{self, AppConfig, AudioSourceMode, EqualizerProfile},
-    execute_sampled,
+    coreaudio, execute_sampled,
     surround_virtualizer::{Equalizer, SurroundVirtualizer, SurroundVirtualizerConfig, wav_to_pcm},
 };
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use log::{info, warn};
 use num_traits::FromPrimitive;
 use ringbuf::traits::Split;
-use std::{
-    sync::{
-        Arc, Mutex,
-        atomic::{self, AtomicBool, AtomicU32},
-    },
-    thread,
-    time::Duration,
+use std::sync::{
+    Arc, Condvar, Mutex,
+    atomic::{self, AtomicU32},
 };
+use std::time::Duration;
 
 const FC_WAV: &[u8] = include_bytes!("../res/hrir/1/FC.wav");
 const BL_WAV: &[u8] = include_bytes!("../res/hrir/1/BL.wav");
@@ -40,14 +37,36 @@ const AUDIO_BACKEND_TIMEOUT_MS: u64 = 1000;
 pub const DEFAULT_INPUT_DEVICE_NAME: &str = "BlackHole 16ch";
 pub const DEFAULT_OUTPUT_DEVICE_NAME: &str = "External Headphones";
 
+struct Signal(Mutex<bool>, Condvar);
+
+impl Signal {
+    const fn new() -> Self {
+        Self(Mutex::new(false), Condvar::new())
+    }
+
+    fn notify(&self) {
+        *self.0.lock().unwrap() = true;
+        self.1.notify_all();
+    }
+
+    fn wait(&self) {
+        let mut signaled = self.0.lock().unwrap();
+        while !*signaled {
+            signaled = self.1.wait(signaled).unwrap();
+        }
+        *signaled = false;
+    }
+}
+
 static CURRENT_SOURCE_MODE: AtomicU32 = AtomicU32::new(0);
 static CURRENT_EQ_PROFILE: AtomicU32 = AtomicU32::new(0);
 static CURRENT_CONTEXT: Mutex<Option<SessionContext>> = Mutex::new(None);
+static DEVICES_CHANGE_WAITER: Signal = Signal::new();
 
 struct SessionContext {
     _in_stream: cpal::Stream,
     _out_stream: cpal::Stream,
-    crash_signal: Arc<AtomicBool>,
+    reload_signal: Arc<Signal>,
 }
 
 pub fn get_input_device_names() -> Vec<String> {
@@ -82,11 +101,19 @@ pub fn get_output_device_names() -> Vec<String> {
         .unwrap_or_default()
 }
 
-pub fn reload_backend() {
-    let ctx = CURRENT_CONTEXT.lock().unwrap();
-    if let Some(ctx) = ctx.as_ref() {
-        ctx.crash_signal.store(true, atomic::Ordering::Relaxed);
+fn notify_devices_change() {
+    if CURRENT_CONTEXT.lock().unwrap().is_none() {
+        // Reload only if there are no healthy active session
+        DEVICES_CHANGE_WAITER.notify();
     }
+}
+
+pub fn reload_backend() {
+    if let Some(ctx) = CURRENT_CONTEXT.lock().unwrap().as_ref() {
+        ctx.reload_signal.notify();
+    }
+    // Also notify to account for possible changes in selected devices
+    DEVICES_CHANGE_WAITER.notify();
 }
 
 pub fn set_equalizer_profile(profile: EqualizerProfile) {
@@ -132,7 +159,7 @@ fn get_devices(
 }
 
 fn start_backend(input_dev: &cpal::Device, output_dev: &cpal::Device) -> Option<SessionContext> {
-    let crash_signal = Arc::new(AtomicBool::new(false));
+    let reload_signal = Arc::new(Signal::new());
 
     let in_dev_name = input_dev
         .description()
@@ -201,12 +228,12 @@ fn start_backend(input_dev: &cpal::Device, output_dev: &cpal::Device) -> Option<
 
     let Some((input_buf_size, in_selected_channels)) = input_selection else {
         warn!("Error: No supported input config found for device '{in_dev_name}'",);
-        crash_signal.store(true, atomic::Ordering::Relaxed);
+        reload_signal.notify();
         return None;
     };
     let Some(output_buf_size) = output_buf_size else {
         warn!("Error: No supported output config found for device '{out_dev_name}'",);
-        crash_signal.store(true, atomic::Ordering::Relaxed);
+        reload_signal.notify();
         return None;
     };
 
@@ -245,8 +272,8 @@ fn start_backend(input_dev: &cpal::Device, output_dev: &cpal::Device) -> Option<
 
     // first create the output stream to reduce glitches at startup
     let aq = Arc::clone(&out_sw);
-    let crash_sig1 = Arc::clone(&crash_signal);
-    let crash_sig2 = Arc::clone(&crash_signal);
+    let reload_sig1 = Arc::clone(&reload_signal);
+    let reload_sig2 = Arc::clone(&reload_signal);
     let out_stream = output_dev
         .build_output_stream(
             &out_config,
@@ -264,7 +291,7 @@ fn start_backend(input_dev: &cpal::Device, output_dev: &cpal::Device) -> Option<
                             output.len()
                         );
                     });
-                    crash_sig1.store(true, atomic::Ordering::Relaxed);
+                    reload_sig1.notify();
                     return;
                 }
 
@@ -272,15 +299,15 @@ fn start_backend(input_dev: &cpal::Device, output_dev: &cpal::Device) -> Option<
             },
             move |err| {
                 warn!("Output error: {}", err);
-                crash_sig2.store(true, atomic::Ordering::Relaxed);
+                reload_sig2.notify();
             },
             Some(Duration::from_millis(AUDIO_BACKEND_TIMEOUT_MS)),
         )
         .unwrap();
 
     let aq = Arc::clone(&out_sw);
-    let crash_sig1 = Arc::clone(&crash_signal);
-    let crash_sig2 = Arc::clone(&crash_signal);
+    let reload_sig1 = Arc::clone(&reload_signal);
+    let reload_sig2 = Arc::clone(&reload_signal);
     let mut consecutive_output_drops: u32 = 0;
     let in_stream = input_dev
         .build_input_stream(
@@ -357,7 +384,7 @@ fn start_backend(input_dev: &cpal::Device, output_dev: &cpal::Device) -> Option<
                     if consecutive_output_drops >= 10 {
                         warn!("Output ringbuffer consistently full, likely no audio output available, reloading backend");
                         consecutive_output_drops = 0;
-                        crash_sig1.store(true, atomic::Ordering::Relaxed);
+                        reload_sig1.notify();
                     }
                 } else {
                     consecutive_output_drops = 0;
@@ -365,7 +392,7 @@ fn start_backend(input_dev: &cpal::Device, output_dev: &cpal::Device) -> Option<
             },
             move |err| {
                 warn!("Input error: {}", err);
-                crash_sig2.store(true, atomic::Ordering::Relaxed);
+                reload_sig2.notify();
             },
             Some(Duration::from_millis(AUDIO_BACKEND_TIMEOUT_MS)),
         )
@@ -373,48 +400,47 @@ fn start_backend(input_dev: &cpal::Device, output_dev: &cpal::Device) -> Option<
 
     if out_stream.play().is_err() {
         warn!("Failed to play output stream");
-        crash_signal.store(true, atomic::Ordering::Relaxed);
+        reload_signal.notify();
     }
     if in_stream.play().is_err() {
         warn!("Failed to play input stream");
-        crash_signal.store(true, atomic::Ordering::Relaxed);
+        reload_signal.notify();
     }
 
     Some(SessionContext {
         _in_stream: in_stream,
         _out_stream: out_stream,
-        crash_signal,
+        reload_signal,
     })
 }
 
 pub fn run() {
     let host = cpal::default_host();
+    coreaudio::on_devices_change(notify_devices_change);
 
     loop {
-        let do_reload = CURRENT_CONTEXT
+        let reload_signal = CURRENT_CONTEXT
             .lock()
             .unwrap()
             .as_ref()
-            .map_or(true, |ctx| ctx.crash_signal.load(atomic::Ordering::Relaxed));
-
-        if do_reload {
-            drop(CURRENT_CONTEXT.lock().unwrap().take());
-
-            let conf = config::get_snapshot();
-            match get_devices(&host, &conf) {
-                Ok((input_dev, output_dev)) => {
-                    info!("Starting backend...");
-                    let ctx = start_backend(&input_dev, &output_dev);
-                    *CURRENT_CONTEXT.lock().unwrap() = ctx;
-                }
-                Err(str) => {
-                    execute_sampled!(Duration::from_secs(5), {
-                        warn!("{}", str);
-                    });
-                }
-            }
+            .map(|ctx| Arc::clone(&ctx.reload_signal));
+        if let Some(reload_signal) = reload_signal {
+            reload_signal.wait();
         }
 
-        thread::sleep(Duration::from_millis(200));
+        drop(CURRENT_CONTEXT.lock().unwrap().take());
+
+        let conf = config::get_snapshot();
+        match get_devices(&host, &conf) {
+            Ok((input_dev, output_dev)) => {
+                info!("Starting backend...");
+                let ctx = start_backend(&input_dev, &output_dev);
+                *CURRENT_CONTEXT.lock().unwrap() = ctx;
+            }
+            Err(msg) => {
+                warn!("{}. Waiting for devices to be available...", msg);
+                DEVICES_CHANGE_WAITER.wait();
+            }
+        }
     }
 }

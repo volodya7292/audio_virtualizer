@@ -4,6 +4,7 @@ mod audio_swapchain;
 mod backend;
 mod block_convolver;
 mod config;
+mod coreaudio;
 mod macros;
 mod surround_virtualizer;
 
