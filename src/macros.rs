@@ -18,7 +18,7 @@ macro_rules! execute_sampled {
         let __now = crate::macros::now_monotonic_millis();
         let __last = __LAST_INVOCATION_TIME.load(std::sync::atomic::Ordering::Relaxed);
 
-        if __now.saturating_sub(__last) >= $dur.as_millis() as u64 {
+        if __last == 0 || __now.saturating_sub(__last) >= $dur.as_millis() as u64 {
             __LAST_INVOCATION_TIME.store(__now, std::sync::atomic::Ordering::Relaxed);
             $block
         }

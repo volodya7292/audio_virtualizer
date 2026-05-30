@@ -3,8 +3,7 @@ use concurrent_queue as cq;
 use ringbuf::traits::{Consumer, Observer, Producer};
 
 pub struct AudioSwapchain<const NUM_CHANNELS: usize> {
-    input_bufs: cq::ConcurrentQueue<Vec<f32>>,
-    output_bufs: cq::ConcurrentQueue<Vec<f32>>,
+    bufs: cq::ConcurrentQueue<Vec<f32>>,
     desired_rb_size: usize,
 }
 
@@ -32,24 +31,17 @@ impl Drop for AudioBuffer<'_> {
 }
 
 impl<const NUM_CHANNELS: usize> AudioSwapchain<NUM_CHANNELS> {
-    pub fn new(in_buf_size: usize, out_buf_size: usize, min_num_packets: usize) -> Self {
-        let rb_size = in_buf_size.max(out_buf_size) * min_num_packets;
+    pub fn new(pool_buf_size: usize, peer_buf_size: usize, min_num_packets: usize) -> Self {
+        let rb_size = pool_buf_size.max(peer_buf_size) * min_num_packets;
 
-        let input_bufs =
-            cq::ConcurrentQueue::bounded(rb_size.next_multiple_of(in_buf_size) / in_buf_size);
-        let output_bufs =
-            cq::ConcurrentQueue::bounded(rb_size.next_multiple_of(out_buf_size) / out_buf_size);
-
-        for _ in 0..input_bufs.capacity().unwrap() {
-            input_bufs.push(vec![0.0; in_buf_size]).unwrap();
-        }
-        for _ in 0..output_bufs.capacity().unwrap() {
-            output_bufs.push(vec![0.0; out_buf_size]).unwrap();
+        let bufs =
+            cq::ConcurrentQueue::bounded(rb_size.next_multiple_of(pool_buf_size) / pool_buf_size);
+        for _ in 0..bufs.capacity().unwrap() {
+            bufs.push(vec![0.0; pool_buf_size]).unwrap();
         }
 
         Self {
-            input_bufs,
-            output_bufs,
+            bufs,
             desired_rb_size: rb_size,
         }
     }
@@ -59,8 +51,8 @@ impl<const NUM_CHANNELS: usize> AudioSwapchain<NUM_CHANNELS> {
         cons: &mut ringbuf::HeapCons<AFrame<NUM_CHANNELS>>,
     ) -> Option<AudioBuffer<'_>> {
         let mut buf = AudioBuffer {
-            data: self.output_bufs.pop().ok()?,
-            free_queue: &self.output_bufs,
+            data: self.bufs.pop().ok()?,
+            free_queue: &self.bufs,
         };
 
         let num_frames = buf.data.len() / NUM_CHANNELS;
@@ -78,9 +70,9 @@ impl<const NUM_CHANNELS: usize> AudioSwapchain<NUM_CHANNELS> {
     }
 
     pub fn acquire_free_input_buf(&self) -> Option<AudioBuffer<'_>> {
-        self.input_bufs.pop().ok().map(|buf| AudioBuffer {
+        self.bufs.pop().ok().map(|buf| AudioBuffer {
             data: buf,
-            free_queue: &self.input_bufs,
+            free_queue: &self.bufs,
         })
     }
 
@@ -98,6 +90,26 @@ impl<const NUM_CHANNELS: usize> AudioSwapchain<NUM_CHANNELS> {
         }));
 
         num_pushed_frames
+    }
+
+    /// Drains `output.len() / NUM_CHANNELS` frames from the ring buffer consumer into
+    /// the interleaved `output` slice. Returns `false` if fewer frames are available.
+    pub fn drain_output(
+        cons: &mut ringbuf::HeapCons<AFrame<NUM_CHANNELS>>,
+        output: &mut [f32],
+    ) -> bool {
+        let num_frames = output.len() / NUM_CHANNELS;
+        if cons.occupied_len() < num_frames {
+            return false;
+        }
+
+        for (idx, frame) in cons.pop_iter().enumerate().take(num_frames) {
+            for ch in 0..NUM_CHANNELS {
+                output[idx * NUM_CHANNELS + ch] = frame[ch];
+            }
+        }
+
+        true
     }
 
     pub fn desired_rb_size(&self) -> usize {

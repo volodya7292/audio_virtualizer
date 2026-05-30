@@ -29,8 +29,8 @@ const AIRPODS4_EQ: &[u8] = include_bytes!("../res/eq/airpods4.wav");
 const K702_EQ: &[u8] = include_bytes!("../res/eq/k702.wav");
 const DT770PRO_EQ: &[u8] = include_bytes!("../res/eq/dt770pro.wav");
 
-const NUM_SURROUND_CHANNELS: u32 = 8;
 const CH_BUF_SIZE: usize = 2048;
+const NUM_SURROUND_CHANNELS: usize = 8;
 const NUM_OUT_CHANNELS: usize = 2;
 const HRIR_SAMPLE_RATE: u32 = 48000;
 const AUDIO_BACKEND_TIMEOUT_MS: u64 = 1000;
@@ -102,6 +102,7 @@ pub fn get_output_device_names() -> Vec<String> {
 }
 
 fn notify_devices_change() {
+    info!("Audio devices changed");
     if CURRENT_CONTEXT.lock().unwrap().is_none() {
         // Reload only if there are no healthy active session
         DEVICES_CHANGE_WAITER.notify();
@@ -249,9 +250,9 @@ fn start_backend(input_dev: &cpal::Device, output_dev: &cpal::Device) -> Option<
         buffer_size: cpal::BufferSize::Fixed(output_buf_size as u32),
     };
 
-    let in_sw = Arc::new(AudioSwapchain::new(
-        input_buf_size * in_config.channels as usize,
+    let in_sw = Arc::new(AudioSwapchain::<NUM_SURROUND_CHANNELS>::new(
         CH_BUF_SIZE * in_config.channels as usize,
+        input_buf_size * in_config.channels as usize,
         1,
     ));
     let (mut in_rb_prod, mut in_rb_cons) =
@@ -260,7 +261,7 @@ fn start_backend(input_dev: &cpal::Device, output_dev: &cpal::Device) -> Option<
         )
         .split();
 
-    let out_sw = Arc::new(AudioSwapchain::new(
+    let out_sw = Arc::new(AudioSwapchain::<NUM_OUT_CHANNELS>::new(
         CH_BUF_SIZE * NUM_OUT_CHANNELS as usize,
         output_buf_size * NUM_OUT_CHANNELS as usize,
         3,
@@ -271,31 +272,17 @@ fn start_backend(input_dev: &cpal::Device, output_dev: &cpal::Device) -> Option<
     .split();
 
     // first create the output stream to reduce glitches at startup
-    let aq = Arc::clone(&out_sw);
-    let reload_sig1 = Arc::clone(&reload_signal);
     let reload_sig2 = Arc::clone(&reload_signal);
     let out_stream = output_dev
         .build_output_stream(
             &out_config,
             move |output: &mut [f32], _| {
-                let Some(buf) = aq.acquire_ready_output_buf(&mut out_rb_cons) else {
+                // CoreAudio may hand us a buffer whose length differs from the requested
+                // size (e.g. when it resamples between the device's native rate and our
+                // stream rate), so drain to fit whatever length it actually asks for.
+                if !AudioSwapchain::drain_output(&mut out_rb_cons, output) {
                     output.fill(cpal::Sample::EQUILIBRIUM);
-                    return;
-                };
-
-                if output.len() != buf.data().len() {
-                    execute_sampled!(Duration::from_secs(5), {
-                        warn!(
-                            "Output buffer size mismatch: expected {}, got {}",
-                            buf.data().len(),
-                            output.len()
-                        );
-                    });
-                    reload_sig1.notify();
-                    return;
                 }
-
-                output.copy_from_slice(buf.data());
             },
             move |err| {
                 warn!("Output error: {}", err);
