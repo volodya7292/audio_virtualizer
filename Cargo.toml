@@ -6,7 +6,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-cpal = "0.17"
+cpal = "0.18"
 concurrent-queue = "2.5"
 ringbuf = "0.5"
 realfft = "3.5"

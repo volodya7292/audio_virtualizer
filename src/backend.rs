@@ -275,7 +275,7 @@ fn start_backend(input_dev: &cpal::Device, output_dev: &cpal::Device) -> Option<
     let reload_sig2 = Arc::clone(&reload_signal);
     let out_stream = output_dev
         .build_output_stream(
-            &out_config,
+            out_config,
             move |output: &mut [f32], _| {
                 // CoreAudio may hand us a buffer whose length differs from the requested
                 // size (e.g. when it resamples between the device's native rate and our
@@ -298,7 +298,7 @@ fn start_backend(input_dev: &cpal::Device, output_dev: &cpal::Device) -> Option<
     let mut consecutive_output_drops: u32 = 0;
     let in_stream = input_dev
         .build_input_stream(
-            &in_config,
+            in_config,
             move |input: &[f32], _| {
                 let num_frames_pushed = AudioSwapchain::submit_input(input, &mut in_rb_prod);
                 if num_frames_pushed < input.len() / in_config.channels as usize {
