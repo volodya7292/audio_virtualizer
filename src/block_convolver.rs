@@ -73,6 +73,12 @@ impl BlockConvolver {
     pub fn process(&mut self, signal_block: &mut [f32]) {
         assert_eq!(signal_block.len(), self.block_size);
 
+        for s in signal_block.iter_mut() {
+            if !s.is_finite() {
+                *s = 0.0;
+            }
+        }
+
         self.signal_double_block[self.block_size..(self.block_size * 2)]
             .copy_from_slice(signal_block);
 
