@@ -16,9 +16,13 @@ impl<'a> AudioDataRef<'a> {
         self.num_channels
     }
 
-    pub fn select_channel(&self, ch_idx: usize) -> impl Iterator<Item = &'a f32> {
+    pub fn select_channel(&self, ch_idx: usize) -> impl Iterator<Item = f32> + 'a {
         assert!(ch_idx < self.num_channels, "channel index out of bounds");
-        self.data.iter().skip(ch_idx).step_by(self.num_channels)
+        self.data
+            .iter()
+            .skip(ch_idx)
+            .step_by(self.num_channels)
+            .copied()
     }
 }
 
@@ -36,8 +40,12 @@ impl<'a> AudioDataMut<'a> {
         Self { data, num_channels }
     }
 
-    pub fn select_channel(&self, ch_idx: usize) -> impl Iterator<Item = &f32> {
-        self.data.iter().skip(ch_idx).step_by(self.num_channels)
+    pub fn select_channel(&self, ch_idx: usize) -> impl Iterator<Item = f32> {
+        self.data
+            .iter()
+            .skip(ch_idx)
+            .step_by(self.num_channels)
+            .copied()
     }
 
     pub fn select_channel_mut(&mut self, ch_idx: usize) -> impl Iterator<Item = &mut f32> {
@@ -46,7 +54,7 @@ impl<'a> AudioDataMut<'a> {
 
     pub fn copy_channel_to_slice(&self, ch_idx: usize, other: &mut [f32]) {
         for (buf_v, s) in self.select_channel(ch_idx).zip(other) {
-            *s = *buf_v;
+            *s = buf_v;
         }
     }
 

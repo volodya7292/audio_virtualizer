@@ -31,9 +31,9 @@ impl BinauralConvolver {
         }
     }
 
-    pub fn process<'a>(&mut self, input_ch_block: impl Iterator<Item = &'a f32>) {
+    pub fn process(&mut self, input_ch_block: impl Iterator<Item = f32>) {
         for (i, v) in input_ch_block.enumerate() {
-            self.left_out[i] = *v;
+            self.left_out[i] = v;
         }
         self.right_out.copy_from_slice(&self.left_out);
 
@@ -120,16 +120,27 @@ impl SurroundVirtualizer {
         }
     }
 
+    /// Routes only the mid/side difference signal (L-R) to the side pair.
+    /// Correlated (center) content cancels out of the sides, so it is rendered
+    /// purely through the fronts without comb coloration, while decorrelated
+    /// content (ambience, wide-panned elements) is widened.
     pub fn process_ch2(&mut self, input_block: &AudioDataRef, stereo_output: &mut AudioDataMut) {
-        const FRONT_GAIN: f32 = 0.8;
+        const FRONT_GAIN: f32 = 0.9;
         const SIDE_GAIN: f32 = 0.4;
 
         assert_eq!(stereo_output.data.len(), self.block_size * 2);
 
+        let side_signal = || {
+            input_block
+                .select_channel(0)
+                .zip(input_block.select_channel(1))
+                .map(|(l, r)| l - r)
+        };
+
         self.fl_conv.process(input_block.select_channel(0));
         self.fr_conv.process(input_block.select_channel(1));
-        self.sl_conv.process(input_block.select_channel(0));
-        self.sr_conv.process(input_block.select_channel(1));
+        self.sl_conv.process(side_signal());
+        self.sr_conv.process(side_signal().map(|v| -v));
 
         let left_ch = stereo_output.select_channel_mut(0);
         for (i, v) in left_ch.enumerate() {
