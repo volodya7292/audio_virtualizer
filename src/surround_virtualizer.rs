@@ -126,7 +126,7 @@ impl SurroundVirtualizer {
     /// content (ambience, wide-panned elements) is widened.
     pub fn process_ch2(&mut self, input_block: &AudioDataRef, stereo_output: &mut AudioDataMut) {
         const FRONT_GAIN: f32 = 0.9;
-        const SIDE_GAIN: f32 = 0.4;
+        const SIDE_GAIN: f32 = 0.15;
 
         assert_eq!(stereo_output.data.len(), self.block_size * 2);
 
